@@ -1,14 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
-import 'features/placeholder/placeholder_home.dart';
+import 'features/auth/sign_in_page.dart';
+import 'features/missions/dispatch_page.dart';
+import 'features/missions/mission_log_page.dart';
+import 'features/missions/operation_room_page.dart';
 
 final _rootKey = GlobalKey<NavigatorState>();
 
-/// M0 阶段的最小路由表。
-///
-/// 真正的「/missions / /missions/new / /missions/:id」等路由
-/// 会在 M3 阶段加入。这里只保证应用能启动到一个占位首页。
 GoRouter buildRouter() {
   return GoRouter(
     navigatorKey: _rootKey,
@@ -16,7 +15,19 @@ GoRouter buildRouter() {
     routes: [
       GoRoute(
         path: '/',
-        builder: (_, _) => const PlaceholderHome(),
+        builder: (_, _) => const MissionLogPage(),
+      ),
+      GoRoute(
+        path: '/sign-in',
+        builder: (_, _) => const SignInPage(),
+      ),
+      GoRoute(
+        path: '/missions/new',
+        builder: (_, _) => const DispatchPage(),
+      ),
+      GoRoute(
+        path: '/missions/:id',
+        builder: (_, state) => OperationRoomPage(missionId: state.pathParameters['id']!),
       ),
     ],
   );

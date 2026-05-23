@@ -7,7 +7,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>AgentZero</string>
+	<string>代号零</string>
 	<key>CFBundleLocalizations</key>
 	<array>
 		<string>zh_Hans</string>
