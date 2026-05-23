@@ -37,6 +37,17 @@ platform :ios do
       build_configuration: "Release"
     )
 
+    update_code_signing_settings(
+      path: "Runner.xcodeproj",
+      use_automatic_signing: false,
+      team_id: "ET423E6YP2",
+      code_sign_identity: "Apple Distribution",
+      bundle_identifier: APP_IDENTIFIER,
+      profile_name: "com.agentzero.me AppStore",
+      targets: ["Runner"],
+      build_configurations: ["Release"]
+    )
+
     build_app(
       workspace: "Runner.xcworkspace",
       scheme: "Runner",
@@ -48,6 +59,15 @@ platform :ios do
       include_symbols: true,
       clean: false,
       skip_profile_detection: false,
+      codesigning_identity: "Apple Distribution: Minglei Chen (ET423E6YP2)",
+      export_options: {
+        method: "app-store",
+        signingStyle: "manual",
+        teamID: "ET423E6YP2",
+        provisioningProfiles: {
+          APP_IDENTIFIER => "com.agentzero.me AppStore"
+        }
+      },
       xcargs: "-allowProvisioningUpdates"
     )
 
