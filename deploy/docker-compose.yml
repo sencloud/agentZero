@@ -8,8 +8,12 @@ services:
     environment:
       PORT: "8080"
       DB_PATH: /var/lib/agentzero/agentzero.db
+      WORKSPACE_ROOT: /var/lib/agentzero/workspaces
       JWT_SECRET: ${JWT_SECRET}
       APPLE_BUNDLE_ID: ${APPLE_BUNDLE_ID:-com.agentzero.me}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
+      DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL:-}
+      BOCHA_API_KEY: ${BOCHA_API_KEY:-}
       TZ: Asia/Shanghai
     volumes:
       - agentzero-data:/var/lib/agentzero

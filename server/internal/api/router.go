@@ -5,18 +5,37 @@ import (
 	"log/slog"
 	"net/http"
 
+	"github.com/agentzero/server/internal/agent"
 	"github.com/agentzero/server/internal/auth"
+	"github.com/agentzero/server/internal/tools"
 	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
 )
 
-func NewRouter(db *sql.DB, av *auth.AppleVerifier, ti *auth.TokenIssuer, logger *slog.Logger) http.Handler {
-	h := &Handlers{db: db, apple: av, tokens: ti, logger: logger}
+// Deps 是 router 装配所需的全部外部依赖。
+type Deps struct {
+	DB       *sql.DB
+	Apple    *auth.AppleVerifier
+	Tokens   *auth.TokenIssuer
+	Logger   *slog.Logger
+	Runner   *agent.Runner
+	Broker   *agent.Broker
+	Registry *tools.Registry
+}
+
+func NewRouter(d Deps) http.Handler {
+	h := &Handlers{db: d.DB, apple: d.Apple, tokens: d.Tokens, logger: d.Logger}
+	m := &missionAPI{
+		Handlers: h,
+		runner:   d.Runner,
+		broker:   d.Broker,
+		registry: d.Registry,
+	}
 
 	r := chi.NewRouter()
 	r.Use(chimw.Recoverer)
 	r.Use(chimw.RealIP)
-	r.Use(requestLogger(logger))
+	r.Use(requestLogger(d.Logger))
 	r.Use(corsMiddleware)
 
 	r.Get("/healthz", func(w http.ResponseWriter, _ *http.Request) {
@@ -24,27 +43,22 @@ func NewRouter(db *sql.DB, av *auth.AppleVerifier, ti *auth.TokenIssuer, logger 
 	})
 
 	r.Route("/api/v1", func(r chi.Router) {
-		r.Use(optionalAuth(ti))
+		r.Use(optionalAuth(d.Tokens))
 
+		// 公开
 		r.Post("/auth/apple", h.appleSignIn)
+		r.Get("/tools", m.listTools)
 
-		r.Get("/feed/today", h.getToday)
-		r.Get("/categories", h.listCategories)
-		r.Get("/agents", h.listAgents)
-		r.Get("/agents/{slug}", h.getAgent)
-		r.Get("/agents/{slug}/reviews", h.listReviews)
-
+		// 需登录
 		r.Group(func(r chi.Router) {
 			r.Use(requireAuth)
 			r.Get("/me", h.me)
-			r.Get("/me/installed", h.listInstalled)
-			r.Get("/me/sessions", h.listSessions)
-			r.Post("/agents/{slug}/install", h.install)
-			r.Delete("/agents/{slug}/install", h.uninstall)
-			r.Post("/agents/{slug}/reviews", h.submitReview)
-			r.Post("/agents/{slug}/sessions", h.createSession)
-			r.Get("/sessions/{id}/messages", h.listMessages)
-			r.Post("/sessions/{id}/messages", h.sendMessage)
+
+			r.Get("/missions", m.listMine)
+			r.Post("/missions", m.dispatch)
+			r.Get("/missions/{id}", m.detail)
+			r.Get("/missions/{id}/stream", m.stream)
+			r.Post("/missions/{id}/abort", m.abort)
 		})
 	})
 

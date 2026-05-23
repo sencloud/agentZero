@@ -1,105 +1,67 @@
 package db
 
-import "database/sql"
+import (
+	"database/sql"
+	"fmt"
+)
 
 const schema = `
 CREATE TABLE IF NOT EXISTS users (
-	id         INTEGER PRIMARY KEY AUTOINCREMENT,
-	apple_sub  TEXT NOT NULL UNIQUE,
-	email      TEXT,
-	nickname   TEXT NOT NULL,
-	avatar_url TEXT,
-	created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  apple_sub   TEXT NOT NULL UNIQUE,
+  email       TEXT,
+  nickname    TEXT NOT NULL,
+  avatar_url  TEXT,
+  created_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE IF NOT EXISTS categories (
-	id    INTEGER PRIMARY KEY AUTOINCREMENT,
-	slug  TEXT NOT NULL UNIQUE,
-	name  TEXT NOT NULL,
-	icon  TEXT NOT NULL,
-	color TEXT NOT NULL
+CREATE TABLE IF NOT EXISTS missions (
+  id             TEXT PRIMARY KEY,
+  user_id        INTEGER NOT NULL REFERENCES users(id),
+  codename       TEXT NOT NULL,
+  brief          TEXT NOT NULL,
+  tier           TEXT NOT NULL,
+  status         TEXT NOT NULL,
+  loadout_json   TEXT NOT NULL DEFAULT '[]',
+  workspace_dir  TEXT NOT NULL,
+  input_tokens   INTEGER NOT NULL DEFAULT 0,
+  output_tokens  INTEGER NOT NULL DEFAULT 0,
+  started_at     TIMESTAMP,
+  ended_at       TIMESTAMP,
+  created_at     TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+CREATE INDEX IF NOT EXISTS idx_missions_user_created ON missions(user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_missions_status        ON missions(status);
 
-CREATE TABLE IF NOT EXISTS agents (
-	id             INTEGER PRIMARY KEY AUTOINCREMENT,
-	slug           TEXT NOT NULL UNIQUE,
-	name           TEXT NOT NULL,
-	tagline        TEXT NOT NULL,
-	description    TEXT NOT NULL,
-	icon_url       TEXT NOT NULL,
-	cover_url      TEXT NOT NULL,
-	screenshots    TEXT NOT NULL DEFAULT '[]',
-	category_id    INTEGER NOT NULL REFERENCES categories(id),
-	developer      TEXT NOT NULL,
-	version        TEXT NOT NULL,
-	size_bytes     INTEGER NOT NULL DEFAULT 0,
-	rating         REAL NOT NULL DEFAULT 0,
-	rating_count   INTEGER NOT NULL DEFAULT 0,
-	install_count  INTEGER NOT NULL DEFAULT 0,
-	is_free        INTEGER NOT NULL DEFAULT 1,
-	price_cents    INTEGER NOT NULL DEFAULT 0,
-	is_featured    INTEGER NOT NULL DEFAULT 0,
-	feature_badge  TEXT,
-	capabilities   TEXT NOT NULL DEFAULT '[]',
-	updated_notes  TEXT,
-	released_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-	updated_at     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+CREATE TABLE IF NOT EXISTS steps (
+  id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+  mission_id         TEXT NOT NULL REFERENCES missions(id) ON DELETE CASCADE,
+  seq                INTEGER NOT NULL,
+  ts                 TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  type               TEXT NOT NULL,
+  payload_json       TEXT NOT NULL DEFAULT '{}',
+  reasoning_content  TEXT NOT NULL DEFAULT '',
+  UNIQUE(mission_id, seq)
 );
+CREATE INDEX IF NOT EXISTS idx_steps_mission_seq ON steps(mission_id, seq);
 
-CREATE INDEX IF NOT EXISTS idx_agents_category ON agents(category_id);
-CREATE INDEX IF NOT EXISTS idx_agents_featured ON agents(is_featured);
-
-CREATE TABLE IF NOT EXISTS reviews (
-	id         INTEGER PRIMARY KEY AUTOINCREMENT,
-	agent_id   INTEGER NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
-	user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-	rating     INTEGER NOT NULL,
-	title      TEXT NOT NULL,
-	body       TEXT NOT NULL,
-	created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-	UNIQUE(agent_id, user_id)
+CREATE TABLE IF NOT EXISTS artifacts (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  mission_id  TEXT NOT NULL REFERENCES missions(id) ON DELETE CASCADE,
+  kind        TEXT NOT NULL,
+  name        TEXT NOT NULL,
+  path        TEXT NOT NULL,
+  mime        TEXT NOT NULL DEFAULT '',
+  size_bytes  INTEGER NOT NULL DEFAULT 0,
+  created_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
-
-CREATE INDEX IF NOT EXISTS idx_reviews_agent ON reviews(agent_id);
-
-CREATE TABLE IF NOT EXISTS installs (
-	user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-	agent_id   INTEGER NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
-	installed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-	PRIMARY KEY(user_id, agent_id)
-);
-
-CREATE TABLE IF NOT EXISTS today_cards (
-	id          INTEGER PRIMARY KEY AUTOINCREMENT,
-	kind        TEXT NOT NULL,
-	eyebrow     TEXT NOT NULL,
-	title       TEXT NOT NULL,
-	subtitle    TEXT NOT NULL,
-	cover_url   TEXT NOT NULL,
-	agent_id    INTEGER REFERENCES agents(id),
-	sort_order  INTEGER NOT NULL DEFAULT 0
-);
-
-CREATE TABLE IF NOT EXISTS chat_sessions (
-	id         INTEGER PRIMARY KEY AUTOINCREMENT,
-	user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-	agent_id   INTEGER NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
-	title      TEXT NOT NULL DEFAULT '',
-	created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE IF NOT EXISTS chat_messages (
-	id         INTEGER PRIMARY KEY AUTOINCREMENT,
-	session_id INTEGER NOT NULL REFERENCES chat_sessions(id) ON DELETE CASCADE,
-	role       TEXT NOT NULL,
-	content    TEXT NOT NULL,
-	created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE INDEX IF NOT EXISTS idx_chat_messages_session ON chat_messages(session_id);
+CREATE INDEX IF NOT EXISTS idx_artifacts_mission ON artifacts(mission_id, created_at DESC);
 `
 
+// Migrate 应用 schema。SQLite 的 CREATE IF NOT EXISTS 是幂等的，可以反复调用。
 func Migrate(db *sql.DB) error {
-	_, err := db.Exec(schema)
-	return err
+	if _, err := db.Exec(schema); err != nil {
+		return fmt.Errorf("migrate schema: %w", err)
+	}
+	return nil
 }
