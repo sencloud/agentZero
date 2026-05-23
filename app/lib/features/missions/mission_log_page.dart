@@ -21,10 +21,58 @@ class MissionLogPage extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final auth = ref.watch(authProvider);
+    // 启动期：先把本地 token 验过再决定显示 sign-in 还是任务簿，
+    // 避免登录态打开 App 时 sign-in 页闪一下。
+    if (!auth.bootstrapped) {
+      return const _BootstrapSplash();
+    }
     if (!auth.isSignedIn) {
       return const _SignInGate();
     }
     return _MissionLogShell(child: _MissionList());
+  }
+}
+
+class _BootstrapSplash extends StatelessWidget {
+  const _BootstrapSplash();
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: SafeArea(
+        child: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 84,
+                height: 84,
+                decoration: BoxDecoration(
+                  border: Border.all(color: AppTheme.graphite, width: 0.8),
+                ),
+                child: Image.asset('assets/branding/app_icon.png', fit: BoxFit.cover),
+              ),
+              const SizedBox(height: 24),
+              const Text(
+                '代号零',
+                style: TextStyle(
+                  color: AppTheme.paper,
+                  fontSize: 22,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 8,
+                ),
+              ),
+              const SizedBox(height: 20),
+              const SizedBox(
+                width: 22,
+                height: 22,
+                child: CircularProgressIndicator(strokeWidth: 2, color: AppTheme.paper),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }
 

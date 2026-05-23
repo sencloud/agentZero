@@ -8,17 +8,32 @@ import '../core/storage.dart';
 import '../models/user.dart';
 
 class AuthState {
-  AuthState({this.user, this.loading = false, this.error});
+  AuthState({this.user, this.loading = false, this.bootstrapped = false, this.error});
   final AppUser? user;
+
+  /// signIn 过程中（点了按钮、等待 Apple/服务器返回）。
   final bool loading;
+
+  /// 启动时的"看看本地有没有 token 并验过身份"流程是否完成。
+  /// false → UI 应当显示 splash / loading，而非登录 gate，避免登录态闪屏。
+  final bool bootstrapped;
+
   final String? error;
 
   bool get isSignedIn => user != null;
 
-  AuthState copyWith({AppUser? user, bool? loading, String? error, bool clearUser = false, bool clearError = false}) {
+  AuthState copyWith({
+    AppUser? user,
+    bool? loading,
+    bool? bootstrapped,
+    String? error,
+    bool clearUser = false,
+    bool clearError = false,
+  }) {
     return AuthState(
       user: clearUser ? null : (user ?? this.user),
       loading: loading ?? this.loading,
+      bootstrapped: bootstrapped ?? this.bootstrapped,
       error: clearError ? null : (error ?? this.error),
     );
   }
@@ -34,15 +49,24 @@ class AuthNotifier extends StateNotifier<AuthState> {
   Future<void> _bootstrap() async {
     final api = _ref.read(apiClientProvider);
     final storage = _ref.read(tokenStorageProvider);
-    if (storage.read() == null) return;
+    if (storage.read() == null) {
+      state = state.copyWith(bootstrapped: true);
+      return;
+    }
     try {
       final r = await api.dio.get('/me');
-      state = state.copyWith(user: AppUser.fromJson(r.data as Map<String, dynamic>));
+      state = state.copyWith(
+        user: AppUser.fromJson(r.data as Map<String, dynamic>),
+        bootstrapped: true,
+      );
     } on DioException catch (e) {
       if (e.response?.statusCode == 401) {
         await storage.clear();
       }
-    } catch (_) {}
+      state = state.copyWith(bootstrapped: true);
+    } catch (_) {
+      state = state.copyWith(bootstrapped: true);
+    }
   }
 
   Future<void> signInWithApple() async {
@@ -67,7 +91,10 @@ class AuthNotifier extends StateNotifier<AuthState> {
       });
       final data = r.data as Map<String, dynamic>;
       await storage.save(data['token'] as String);
-      state = AuthState(user: AppUser.fromJson(data['user'] as Map<String, dynamic>));
+      state = AuthState(
+        user: AppUser.fromJson(data['user'] as Map<String, dynamic>),
+        bootstrapped: true,
+      );
     } catch (e) {
       if (kDebugMode) {
         debugPrint('apple sign in failed: $e');
@@ -78,7 +105,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
 
   Future<void> signOut() async {
     await _ref.read(tokenStorageProvider).clear();
-    state = AuthState();
+    state = AuthState(bootstrapped: true);
   }
 }
 

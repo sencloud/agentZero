@@ -74,7 +74,7 @@ func (m *missionAPI) dispatch(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "db_error")
 		return
 	}
-	if err := m.runner.Start(r.Context(), mission); err != nil {
+	if err := m.runner.Start(mission); err != nil {
 		m.logger.Error("start runner failed", "err", err)
 		writeError(w, http.StatusInternalServerError, "start_failed")
 		return

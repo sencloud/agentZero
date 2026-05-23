@@ -82,11 +82,14 @@ func New(cfg Config, database *sql.DB, llmClient *llm.Client, reg *tools.Registr
 
 // Start 启动一个 mission。它会立即在后台启一个 goroutine 跑 loop，并返回。
 // 调用方可以用 Abort 中止。
-func (r *Runner) Start(parent context.Context, m *model.Mission) error {
+//
+// 注意：ctx 必须用 context.Background 派生，不能用 HTTP request 的 r.Context()。
+// 否则 handler 一返回 request ctx 就被 cancel，整个 mission 立刻被取消。
+func (r *Runner) Start(m *model.Mission) error {
 	if err := os.MkdirAll(m.WorkspaceDir, 0o755); err != nil {
 		return fmt.Errorf("prepare workspace: %w", err)
 	}
-	ctx, cancel := context.WithCancel(parent)
+	ctx, cancel := context.WithCancel(context.Background())
 	r.activeMu.Lock()
 	r.active[m.ID] = cancel
 	r.activeMu.Unlock()
