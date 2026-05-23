@@ -1,0 +1,75 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# Editors
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Secrets
+*.env
+*.env.*
+!*.env.example
+secrets/
+.local-secrets/
+*.p8
+*.p12
+*.mobileprovision
+*.cer
+*.certSigningRequest
+AuthKey_*.p8
+
+# Go
+server/bin/
+server/data/
+server/agentzero
+server/*.db
+server/*.db-journal
+server/*.db-wal
+server/*.db-shm
+**/*.db
+**/*.db-journal
+**/*.db-wal
+**/*.db-shm
+
+# Flutter / Dart
+app/.dart_tool/
+app/.flutter-plugins
+app/.flutter-plugins-dependencies
+app/.packages
+app/.pub-cache/
+app/.pub/
+app/build/
+app/.fvm/
+app/coverage/
+app/pubspec.lock
+app/ios/Pods/
+app/ios/.symlinks/
+app/ios/Flutter/Flutter.framework
+app/ios/Flutter/Flutter.podspec
+app/ios/Flutter/Generated.xcconfig
+app/ios/Flutter/flutter_export_environment.sh
+app/ios/Runner.xcworkspace/xcuserdata/
+app/ios/Runner.xcodeproj/xcuserdata/
+app/ios/Runner.xcodeproj/project.xcworkspace/xcuserdata/
+app/android/.gradle/
+app/android/captures/
+app/android/local.properties
+app/android/**/GeneratedPluginRegistrant.java
+app/macos/Pods/
+app/macos/Flutter/ephemeral/
+app/linux/flutter/ephemeral/
+app/windows/flutter/ephemeral/
+
+# Fastlane
+app/ios/fastlane/report.xml
+app/ios/fastlane/Preview.html
+app/ios/fastlane/screenshots/**/*.png
+app/ios/fastlane/test_output
+app/ios/fastlane/README.md
+
+# Build artifacts
+*.log
+node_modules/

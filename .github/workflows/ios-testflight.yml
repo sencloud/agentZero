@@ -1,0 +1,95 @@
+name: iOS TestFlight
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'CFBundleShortVersionString (例：0.1.0)，留空则取 tag 名'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 60
+    env:
+      FLUTTER_VERSION: '3.41.9'
+      RUBY_VERSION: '3.3'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: '16.2'
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+
+      - name: Setup Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: ${{ env.RUBY_VERSION }}
+          bundler-cache: true
+          working-directory: app/ios
+
+      - name: Flutter pub get
+        working-directory: app
+        run: flutter pub get
+
+      - name: Resolve version
+        id: ver
+        run: |
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            VERSION="${GITHUB_REF_NAME#v}"
+          fi
+          if [ -z "$VERSION" ]; then VERSION="0.1.0"; fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "build_number=$GITHUB_RUN_NUMBER" >> $GITHUB_OUTPUT
+
+      - name: Build Flutter iOS (no codesign)
+        working-directory: app
+        run: |
+          flutter build ios --release --no-codesign \
+            --build-name=${{ steps.ver.outputs.version }} \
+            --build-number=${{ steps.ver.outputs.build_number }}
+
+      - name: Decode distribution certificate
+        env:
+          IOS_DIST_CERT_P12_BASE64: ${{ secrets.IOS_DIST_CERT_P12_BASE64 }}
+        run: |
+          if [ -z "$IOS_DIST_CERT_P12_BASE64" ]; then
+            echo "missing IOS_DIST_CERT_P12_BASE64 secret" >&2
+            exit 1
+          fi
+          echo "$IOS_DIST_CERT_P12_BASE64" | base64 -D > "$RUNNER_TEMP/dist.p12"
+          echo "IOS_DIST_CERT_P12_PATH=$RUNNER_TEMP/dist.p12" >> $GITHUB_ENV
+
+      - name: Run fastlane beta
+        working-directory: app/ios
+        env:
+          APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+          APP_STORE_CONNECT_API_KEY_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ISSUER_ID }}
+          APP_STORE_CONNECT_API_KEY_CONTENT: ${{ secrets.APP_STORE_CONNECT_API_KEY_CONTENT }}
+          IOS_DIST_CERT_PASSWORD: ${{ secrets.IOS_DIST_CERT_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          TESTFLIGHT_CHANGELOG: ${{ vars.TESTFLIGHT_CHANGELOG }}
+        run: bundle exec fastlane beta
+
+      - name: Upload IPA artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: agentzero-ipa-${{ steps.ver.outputs.version }}-${{ steps.ver.outputs.build_number }}
+          path: app/build/ios/ipa/agentzero.ipa
+          if-no-files-found: warn

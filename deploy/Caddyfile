@@ -1,0 +1,26 @@
+{
+	# 全局：80 端口已被宿主机现有 nginx 占用，禁用 Caddy 的 HTTP→HTTPS 重定向
+	auto_https disable_redirects
+	email {$LE_EMAIL}
+}
+
+{$AGENTZERO_DOMAIN} {
+	# 80 被宿主机 nginx 占用，只能走 TLS-ALPN-01
+	tls {
+		issuer acme {
+			disable_http_challenge
+		}
+	}
+
+	encode zstd gzip
+
+	log {
+		output stdout
+		format console
+	}
+
+	reverse_proxy api:8080 {
+		header_up Host {host}
+		header_up X-Real-IP {remote_host}
+	}
+}

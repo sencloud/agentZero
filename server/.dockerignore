@@ -1,0 +1,10 @@
+bin/
+data/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+.git/
+.idea/
+.vscode/
+*.log
