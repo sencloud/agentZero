@@ -74,6 +74,13 @@ func (s *statusRecorder) WriteHeader(c int) {
 	s.ResponseWriter.WriteHeader(c)
 }
 
+// Flush 透传给底层 ResponseWriter，否则 SSE handler 里 w.(http.Flusher) 直接失败。
+func (s *statusRecorder) Flush() {
+	if f, ok := s.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
 func requestLogger(logger *slog.Logger) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
