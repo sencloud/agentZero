@@ -2,8 +2,11 @@ import 'dart:async';
 
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/api_client.dart';
 import '../../core/theme.dart';
@@ -36,6 +39,25 @@ class _OperationRoomPageState extends ConsumerState<OperationRoomPage> {
   StreamSubscription<MissionStep>? _subscription;
   final ScrollController _scrollCtrl = ScrollController();
   bool _autoScroll = true;
+
+  /// 任务的"最终汇报"工件（按命名约定优先取 报告.html / report.html，再次取
+  /// 最后一个 HTML 工件，再次为空）。
+  Artifact? get _reportArtifact {
+    if (_artifacts.isEmpty) return null;
+    Artifact? named;
+    Artifact? lastHtml;
+    for (final a in _artifacts) {
+      final isHtml = a.mime.startsWith('text/html') ||
+          a.name.toLowerCase().endsWith('.html') ||
+          a.name.toLowerCase().endsWith('.htm');
+      if (!isHtml) continue;
+      if (a.name == '报告.html' || a.name.toLowerCase() == 'report.html') {
+        named = a;
+      }
+      lastHtml = a;
+    }
+    return named ?? lastHtml;
+  }
 
   @override
   void initState() {
@@ -231,6 +253,7 @@ class _OperationRoomPageState extends ConsumerState<OperationRoomPage> {
           children: [
             _MissionHeader(mission: m, artifactCount: _artifacts.length),
             const Divider(height: 1, color: AppTheme.graphite),
+            if (_reportArtifact != null) _ReportBanner(mission: m, artifact: _reportArtifact!),
             Expanded(
               child: blocks.isEmpty
                   ? _EmptyEventState(running: _running)
@@ -255,6 +278,80 @@ class _OperationRoomPageState extends ConsumerState<OperationRoomPage> {
                     ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+// ============== 作战汇报横幅（任务出 HTML 工件后顶部出现） ==============
+
+class _ReportBanner extends StatelessWidget {
+  const _ReportBanner({required this.mission, required this.artifact});
+  final Mission mission;
+  final Artifact artifact;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: () {
+          context.push(
+            '/missions/${mission.id}/artifacts/${artifact.id}'
+            '?name=${Uri.encodeQueryComponent(artifact.name)}'
+            '&mime=${Uri.encodeQueryComponent(artifact.mime)}',
+          );
+        },
+        child: Container(
+          margin: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+          padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+          decoration: BoxDecoration(
+            color: AppTheme.paper,
+            border: Border.all(color: AppTheme.redline, width: 1.2),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 36,
+                height: 36,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(border: Border.all(color: AppTheme.redline, width: 1)),
+                child: const Icon(CupertinoIcons.doc_richtext, color: AppTheme.redline, size: 18),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      '作战汇报已就绪',
+                      style: TextStyle(
+                        color: AppTheme.ink,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 3,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      artifact.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: AppTheme.muted,
+                        fontSize: 11,
+                        letterSpacing: 1,
+                        fontFamilyFallback: AppTheme.monoFallback,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              const Icon(CupertinoIcons.arrow_right_circle_fill, color: AppTheme.redline, size: 22),
+            ],
+          ),
         ),
       ),
     );
@@ -437,42 +534,77 @@ class _Timestamp extends StatelessWidget {
   }
 }
 
-class _ThoughtBlock extends StatelessWidget {
+class _ThoughtBlock extends StatefulWidget {
   const _ThoughtBlock({required this.text, required this.ts});
   final String text;
   final DateTime ts;
+
+  @override
+  State<_ThoughtBlock> createState() => _ThoughtBlockState();
+}
+
+class _ThoughtBlockState extends State<_ThoughtBlock> {
+  bool _expanded = false;
+
   @override
   Widget build(BuildContext context) {
+    final chars = widget.text.length;
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 10),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(width: 2, color: AppTheme.amber, margin: const EdgeInsets.only(top: 4, right: 12), height: 16 + (text.length / 18).clamp(0, 16) * 18),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Text('THINKING',
-                        style: const TextStyle(
-                          color: AppTheme.amber,
-                          fontSize: 10,
-                          letterSpacing: 3,
-                          fontWeight: FontWeight.w700,
-                          fontFamilyFallback: AppTheme.monoFallback,
-                        )),
-                    const SizedBox(width: 8),
-                    _Timestamp(ts: ts),
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: () => setState(() => _expanded = !_expanded),
+          child: AnimatedSize(
+            duration: const Duration(milliseconds: 160),
+            alignment: Alignment.topLeft,
+            curve: Curves.easeOutCubic,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Container(width: 2, height: 12, color: AppTheme.amber, margin: const EdgeInsets.only(right: 10)),
+                      const Text('THINKING',
+                          style: TextStyle(
+                            color: AppTheme.amber,
+                            fontSize: 10,
+                            letterSpacing: 3,
+                            fontWeight: FontWeight.w700,
+                            fontFamilyFallback: AppTheme.monoFallback,
+                          )),
+                      const SizedBox(width: 8),
+                      Text('· $chars 字',
+                          style: const TextStyle(
+                            color: AppTheme.muted,
+                            fontSize: 10,
+                            letterSpacing: 1,
+                            fontFamilyFallback: AppTheme.monoFallback,
+                          )),
+                      const Spacer(),
+                      _Timestamp(ts: widget.ts),
+                      const SizedBox(width: 6),
+                      Icon(_expanded ? CupertinoIcons.chevron_up : CupertinoIcons.chevron_down,
+                          color: AppTheme.muted, size: 11),
+                    ],
+                  ),
+                  if (_expanded) ...[
+                    const SizedBox(height: 10),
+                    Container(
+                      padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
+                      decoration: const BoxDecoration(
+                        border: Border(left: BorderSide(color: AppTheme.amber, width: 2)),
+                      ),
+                      child: SelectableText(widget.text, style: AppTheme.monoAccent),
+                    ),
                   ],
-                ),
-                const SizedBox(height: 6),
-                Text(text, style: AppTheme.monoAccent),
-              ],
+                ],
+              ),
             ),
           ),
-        ],
+        ),
       ),
     );
   }
@@ -504,8 +636,38 @@ class _MessageBlock extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 8),
-          SelectableText(text,
-              style: const TextStyle(color: AppTheme.paper, fontSize: 14.5, height: 1.65)),
+          MarkdownBody(
+            data: text,
+            selectable: true,
+            onTapLink: (linkText, href, title) async {
+              if (href == null || href.isEmpty) return;
+              final uri = Uri.tryParse(href);
+              if (uri == null) return;
+              await launchUrl(uri, mode: LaunchMode.externalApplication);
+            },
+            styleSheet: MarkdownStyleSheet(
+              p: const TextStyle(color: AppTheme.paper, fontSize: 14.5, height: 1.65),
+              h1: const TextStyle(color: AppTheme.paper, fontSize: 20, fontWeight: FontWeight.w800, height: 1.4),
+              h2: const TextStyle(color: AppTheme.paper, fontSize: 17.5, fontWeight: FontWeight.w800, height: 1.4),
+              h3: const TextStyle(color: AppTheme.paper, fontSize: 15.5, fontWeight: FontWeight.w700, height: 1.4),
+              listBullet: const TextStyle(color: AppTheme.paper, fontSize: 14.5, height: 1.65),
+              strong: const TextStyle(color: AppTheme.paper, fontWeight: FontWeight.w800),
+              em: const TextStyle(color: AppTheme.pen, fontStyle: FontStyle.italic),
+              a: const TextStyle(color: AppTheme.amber, decoration: TextDecoration.underline),
+              code: const TextStyle(
+                color: AppTheme.amber,
+                backgroundColor: AppTheme.carbon,
+                fontSize: 13,
+                fontFamilyFallback: AppTheme.monoFallback,
+              ),
+              codeblockDecoration: BoxDecoration(color: AppTheme.carbon, border: Border.all(color: AppTheme.graphite)),
+              codeblockPadding: const EdgeInsets.all(12),
+              blockquoteDecoration: const BoxDecoration(
+                border: Border(left: BorderSide(color: AppTheme.graphite, width: 3)),
+              ),
+              blockquotePadding: const EdgeInsets.only(left: 12, top: 4, bottom: 4),
+            ),
+          ),
         ],
       ),
     );
@@ -879,7 +1041,18 @@ class _VaultSheet extends StatelessWidget {
                     : ListView.separated(
                         controller: scroll,
                         padding: const EdgeInsets.fromLTRB(20, 12, 20, 32),
-                        itemBuilder: (_, i) => _ArtifactRow(artifact: artifacts[i]),
+                        itemBuilder: (_, i) => _ArtifactRow(
+                          artifact: artifacts[i],
+                          onTap: () {
+                            final a = artifacts[i];
+                            Navigator.of(ctx).pop();
+                            ctx.push(
+                              '/missions/${a.missionId}/artifacts/${a.id}'
+                              '?name=${Uri.encodeQueryComponent(a.name)}'
+                              '&mime=${Uri.encodeQueryComponent(a.mime)}',
+                            );
+                          },
+                        ),
                         separatorBuilder: (_, _) => const Divider(color: AppTheme.graphite),
                         itemCount: artifacts.length,
                       ),
@@ -893,13 +1066,16 @@ class _VaultSheet extends StatelessWidget {
 }
 
 class _ArtifactRow extends StatelessWidget {
-  const _ArtifactRow({required this.artifact});
+  const _ArtifactRow({required this.artifact, required this.onTap});
   final Artifact artifact;
+  final VoidCallback onTap;
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 10),
-      child: Row(
+    return InkWell(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 10),
+        child: Row(
         children: [
           Container(
             width: 36,
@@ -940,7 +1116,10 @@ class _ArtifactRow extends StatelessWidget {
                 letterSpacing: 1,
                 fontFamilyFallback: AppTheme.monoFallback,
               )),
+          const SizedBox(width: 6),
+          const Icon(CupertinoIcons.chevron_right, color: AppTheme.muted, size: 12),
         ],
+        ),
       ),
     );
   }

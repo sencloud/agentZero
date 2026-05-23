@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -217,6 +218,54 @@ func writeSSEStep(w http.ResponseWriter, s *model.Step) bool {
 	}
 	_, err = fmt.Fprintf(w, "event: step\nid: %d\ndata: %s\n\n", s.Seq, raw)
 	return err == nil
+}
+
+// ---- GET /missions/:id/artifacts/:aid/content  (返回工件 raw 内容) ----
+
+func (m *missionAPI) artifactContent(w http.ResponseWriter, r *http.Request) {
+	uid, _ := userIDFrom(r)
+	missionID := chi.URLParam(r, "id")
+	aidStr := chi.URLParam(r, "aid")
+	aid, err := strconv.ParseInt(aidStr, 10, 64)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_artifact_id")
+		return
+	}
+	if _, err := db.GetMission(r.Context(), m.db, missionID, uid); err != nil {
+		writeError(w, http.StatusNotFound, "mission_not_found")
+		return
+	}
+	art, err := db.GetArtifact(r.Context(), m.db, missionID, aid)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "artifact_not_found")
+		return
+	}
+
+	workspaceDir := m.runner.MissionWorkspace(missionID)
+	full := art.Path
+	if !filepath.IsAbs(full) {
+		full = filepath.Join(workspaceDir, full)
+	}
+	rel, err := filepath.Rel(workspaceDir, full)
+	if err != nil || strings.HasPrefix(rel, "..") {
+		writeError(w, http.StatusForbidden, "forbidden_path")
+		return
+	}
+
+	data, err := os.ReadFile(full)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "file_not_found")
+		return
+	}
+	ctype := art.Mime
+	if ctype == "" {
+		ctype = "application/octet-stream"
+	}
+	w.Header().Set("Content-Type", ctype)
+	w.Header().Set("Content-Disposition", `inline; filename="`+art.Name+`"`)
+	w.Header().Set("X-Artifact-Name", art.Name)
+	w.Header().Set("X-Artifact-Kind", art.Kind)
+	_, _ = w.Write(data)
 }
 
 // ---- GET /tools  (列出注册的装备，用于派遣页) ----

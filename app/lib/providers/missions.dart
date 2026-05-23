@@ -1,3 +1,6 @@
+import 'dart:convert';
+
+import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/api_client.dart';
@@ -90,3 +93,56 @@ class AbortMissionAction {
 }
 
 final abortMissionProvider = Provider<AbortMissionAction>((ref) => AbortMissionAction(ref));
+
+/// 工件原始内容（不缓存，用于 ArtifactViewerPage 拉取 HTML 等）。
+class ArtifactContent {
+  ArtifactContent({required this.bytes, required this.mime, required this.text});
+  final List<int> bytes;
+  final String mime;
+  final String text;
+
+  bool get isHtml => mime.startsWith('text/html');
+  bool get isText => mime.startsWith('text/') || mime == 'application/json';
+}
+
+class _ArtifactKey {
+  _ArtifactKey(this.missionId, this.artifactId);
+  final String missionId;
+  final int artifactId;
+
+  @override
+  bool operator ==(Object other) =>
+      other is _ArtifactKey && other.missionId == missionId && other.artifactId == artifactId;
+  @override
+  int get hashCode => Object.hash(missionId, artifactId);
+}
+
+final artifactContentProvider =
+    FutureProvider.autoDispose.family<ArtifactContent, _ArtifactKey>((ref, key) async {
+  final api = ref.watch(apiClientProvider);
+  final r = await api.dio.get<List<int>>(
+    '/missions/${key.missionId}/artifacts/${key.artifactId}/content',
+    options: Options(responseType: ResponseType.bytes),
+  );
+  final mime = (r.headers.value('content-type') ?? '').split(';').first.trim();
+  final bytes = r.data ?? const <int>[];
+  String text = '';
+  if (mime.startsWith('text/') || mime == 'application/json') {
+    try {
+      text = utf8.decode(bytes);
+    } catch (_) {
+      text = '';
+    }
+  }
+  return ArtifactContent(bytes: bytes, mime: mime, text: text);
+});
+
+/// 给外部调用的便利函数：拉一个工件的内容。
+Future<ArtifactContent> fetchArtifactContent(Ref ref, String missionId, int artifactId) {
+  return ref.read(artifactContentProvider(_ArtifactKey(missionId, artifactId)).future);
+}
+
+/// 给 widget tree 内调用：直接 watch 工件内容。
+AsyncValue<ArtifactContent> watchArtifactContent(WidgetRef ref, String missionId, int artifactId) {
+  return ref.watch(artifactContentProvider(_ArtifactKey(missionId, artifactId)));
+}

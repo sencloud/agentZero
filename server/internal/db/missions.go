@@ -194,6 +194,22 @@ func AddArtifact(ctx context.Context, db *sql.DB, a *model.Artifact) error {
 	return nil
 }
 
+// GetArtifact 取一个 mission 下的单个工件，做了 mission_id 归属校验。
+func GetArtifact(ctx context.Context, db *sql.DB, missionID string, artifactID int64) (*model.Artifact, error) {
+	row := db.QueryRowContext(ctx, `
+		SELECT id, mission_id, kind, name, path, mime, size_bytes, created_at
+		FROM artifacts WHERE id = ? AND mission_id = ?
+	`, artifactID, missionID)
+	var a model.Artifact
+	if err := row.Scan(&a.ID, &a.MissionID, &a.Kind, &a.Name, &a.Path, &a.Mime, &a.Size, &a.CreatedAt); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+	return &a, nil
+}
+
 // ListArtifacts 按时间倒序拉某 mission 的工件。
 func ListArtifacts(ctx context.Context, db *sql.DB, missionID string) ([]*model.Artifact, error) {
 	rows, err := db.QueryContext(ctx, `
