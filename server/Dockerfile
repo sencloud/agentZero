@@ -3,7 +3,12 @@
 FROM golang:1.25-alpine AS build
 WORKDIR /src
 
-RUN apk add --no-cache git ca-certificates
+# 阿里云 ECS 构建：apk 走阿里云 mirror、Go 走七牛 goproxy
+RUN sed -i 's#https\?://dl-cdn.alpinelinux.org#https://mirrors.aliyun.com#g' /etc/apk/repositories \
+ && apk add --no-cache git ca-certificates
+
+ENV GOPROXY=https://goproxy.cn,direct \
+    GOSUMDB=sum.golang.google.cn
 
 COPY go.mod go.sum ./
 RUN go mod download
@@ -16,9 +21,10 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
     -o /out/agentzero ./cmd/agentzero
 
 FROM alpine:3.20
-RUN apk add --no-cache ca-certificates tzdata && \
-    addgroup -S agentzero && adduser -S agentzero -G agentzero && \
-    mkdir -p /var/lib/agentzero && chown agentzero:agentzero /var/lib/agentzero
+RUN sed -i 's#https\?://dl-cdn.alpinelinux.org#https://mirrors.aliyun.com#g' /etc/apk/repositories \
+ && apk add --no-cache ca-certificates tzdata \
+ && addgroup -S agentzero && adduser -S agentzero -G agentzero \
+ && mkdir -p /var/lib/agentzero && chown agentzero:agentzero /var/lib/agentzero
 ENV TZ=Asia/Shanghai
 ENV PORT=8080
 ENV DB_PATH=/var/lib/agentzero/agentzero.db
