@@ -106,6 +106,7 @@ class SignInPage extends ConsumerWidget {
                   style: SignInWithAppleButtonStyle.white,
                   height: 52,
                   borderRadius: BorderRadius.zero,
+                  text: '通过 Apple 登录',
                 ),
               ),
               const SizedBox(height: 14),

@@ -11,11 +11,17 @@ class TokenStorage {
   Future<void> clear() => _prefs.remove(_key);
 }
 
-final sharedPreferencesProvider = FutureProvider<SharedPreferences>((ref) async {
-  return SharedPreferences.getInstance();
+/// 同步 SharedPreferences provider —— 必须由 main() 在 `await SharedPreferences.getInstance()`
+/// 后通过 `overrideWithValue(...)` 注入，否则首次 read 时会立即抛错。
+///
+/// 这样设计是为了避免 AuthNotifier / ApiClient 在构造时拿不到 prefs（FutureProvider
+/// 第一次 read 时还在 loading → requireValue 抛错 → 静默吞掉 → 永远未登录）。
+final sharedPreferencesProvider = Provider<SharedPreferences>((ref) {
+  throw UnimplementedError(
+    'sharedPreferencesProvider 必须在 main() 用 override 注入',
+  );
 });
 
 final tokenStorageProvider = Provider<TokenStorage>((ref) {
-  final prefs = ref.watch(sharedPreferencesProvider).requireValue;
-  return TokenStorage(prefs);
+  return TokenStorage(ref.watch(sharedPreferencesProvider));
 });

@@ -86,10 +86,19 @@ class _DispatchPageState extends ConsumerState<DispatchPage> {
       }
     } catch (e) {
       if (mounted) {
+        final msg = '派遣失败：$e';
         setState(() {
           _submitting = false;
-          _error = '派遣失败：$e';
+          _error = msg;
         });
+        // 同时弹一条 snackbar，防止用户没注意到内嵌错误条
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: AppTheme.redline,
+            content: Text(msg, style: const TextStyle(color: AppTheme.paper)),
+            duration: const Duration(seconds: 5),
+          ),
+        );
       }
     }
   }

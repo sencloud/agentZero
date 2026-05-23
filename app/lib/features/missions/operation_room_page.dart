@@ -132,6 +132,14 @@ class _OperationRoomPageState extends ConsumerState<OperationRoomPage> {
       onError: (e) {
         if (!mounted) return;
         setState(() => _error = '事件流断开：$e');
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: AppTheme.redline,
+            content: Text('事件流断开：$e',
+                style: const TextStyle(color: AppTheme.paper)),
+            duration: const Duration(seconds: 5),
+          ),
+        );
       },
     );
   }
@@ -225,7 +233,7 @@ class _OperationRoomPageState extends ConsumerState<OperationRoomPage> {
             const Divider(height: 1, color: AppTheme.graphite),
             Expanded(
               child: blocks.isEmpty
-                  ? const _EmptyEventState()
+                  ? _EmptyEventState(running: _running)
                   : Stack(
                       children: [
                         ListView.builder(
@@ -690,22 +698,39 @@ class _SystemBlock extends StatelessWidget {
 }
 
 class _EmptyEventState extends StatelessWidget {
-  const _EmptyEventState();
+  const _EmptyEventState({required this.running});
+  final bool running;
+
   @override
   Widget build(BuildContext context) {
+    final waiting = running;
     return Center(
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          AppDecor.stamp('STANDBY', border: AppTheme.pen, color: AppTheme.pen),
+          if (waiting) ...[
+            const SizedBox(
+              height: 26,
+              width: 26,
+              child: CircularProgressIndicator(strokeWidth: 2, color: AppTheme.paper),
+            ),
+            const SizedBox(height: 16),
+          ],
+          AppDecor.stamp(
+            waiting ? 'STANDBY' : 'NO TRACE',
+            border: waiting ? AppTheme.amber : AppTheme.pen,
+            color: waiting ? AppTheme.amber : AppTheme.pen,
+          ),
           const SizedBox(height: 12),
-          const Text('特工准备就绪…',
-              style: TextStyle(
-                color: AppTheme.pen,
-                fontSize: 12,
-                letterSpacing: 3,
-                fontFamilyFallback: AppTheme.monoFallback,
-              )),
+          Text(
+            waiting ? '已派遣，正在与代号零接通…' : '本任务没有留下任何痕迹。',
+            style: const TextStyle(
+              color: AppTheme.pen,
+              fontSize: 12,
+              letterSpacing: 3,
+              fontFamilyFallback: AppTheme.monoFallback,
+            ),
+          ),
         ],
       ),
     );

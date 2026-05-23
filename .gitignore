@@ -55,6 +55,8 @@ app/ios/Runner.xcworkspace/xcuserdata/
 app/ios/Runner.xcodeproj/xcuserdata/
 app/ios/Runner.xcodeproj/project.xcworkspace/xcuserdata/
 app/android/.gradle/
+app/android/build/
+app/android/app/build/
 app/android/captures/
 app/android/local.properties
 app/android/**/GeneratedPluginRegistrant.java
