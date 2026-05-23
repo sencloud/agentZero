@@ -1,8 +1,14 @@
 name: agentzero
 
+# 本地部署模式：服务器上直接用宿主机 docker build 本地代码。
+# 不再依赖 GHCR / GitHub Actions。
+
 services:
   api:
-    image: ghcr.io/${GITHUB_REPOSITORY:-agentzero/agentzero}/server:${IMAGE_TAG:-latest}
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    image: agentzero/server:local
     container_name: agentzero-api
     restart: unless-stopped
     environment:
@@ -19,19 +25,17 @@ services:
       - agentzero-data:/var/lib/agentzero
     networks:
       - agentzero-net
-    # 不再 ports 暴露宿主机端口：仅通过 Caddy 反代访问
-    # 原因：阿里云 ECS 国内地域对明文 HTTP（无论端口）会拦截，必须走 HTTPS
+    # 不暴露宿主机端口：仅通过 Caddy 反代
 
   caddy:
     image: caddy:2.8-alpine
     container_name: agentzero-caddy
     restart: unless-stopped
     ports:
-      # 443 给 Caddy；80 留给宿主机现有的 nginx；故不绑 80
       - "443:443"
       - "443:443/udp"
     environment:
-      AGENTZERO_DOMAIN: ${AGENTZERO_DOMAIN:-47-96-115-180.sslip.io}
+      AGENTZERO_DOMAIN: ${AGENTZERO_DOMAIN:-47-96-115-180.nip.io}
       LE_EMAIL: ${LE_EMAIL:-admin@agentzero.app}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro

@@ -35,4 +35,4 @@ mkdir -p /opt/agentzero
 chown root:root /opt/agentzero
 chmod 750 /opt/agentzero
 
-echo "完成。后续 CI 会把 docker-compose.yml / Caddyfile / .env 推到 /opt/agentzero/。"
+echo "完成。回本地跑 ./deploy/deploy.sh 即可把代码 + compose + .env 推上来并启动。"
