@@ -81,10 +81,16 @@ class _MissionLogShell extends StatelessWidget {
     final date = DateFormat('yyyy.MM.dd').format(DateTime.now());
     return Scaffold(
       appBar: AppBar(
+        titleSpacing: 12,
         title: Row(
           children: [
-            AppDecor.stamp('CLASSIFIED', border: AppTheme.redline, color: AppTheme.redline),
-            const SizedBox(width: 12),
+            Container(
+              width: 28,
+              height: 28,
+              decoration: BoxDecoration(border: Border.all(color: AppTheme.graphite, width: 0.8)),
+              child: Image.asset('assets/branding/app_icon.png', fit: BoxFit.cover),
+            ),
+            const SizedBox(width: 10),
             const Text('任务簿', style: TextStyle(color: AppTheme.paper, fontSize: 14, letterSpacing: 4)),
             const Spacer(),
             Text('DATE · $date', style: const TextStyle(

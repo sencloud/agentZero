@@ -37,14 +37,29 @@ class SignInPage extends ConsumerWidget {
                   Text('FILE · 00-AZ', style: Theme.of(context).textTheme.labelMedium),
                 ],
               ),
-              const SizedBox(height: 40),
+              const SizedBox(height: 36),
+              Container(
+                width: 104,
+                height: 104,
+                decoration: BoxDecoration(
+                  border: Border.all(color: AppTheme.paper, width: 1),
+                ),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.zero,
+                  child: Image.asset(
+                    'assets/branding/app_icon.png',
+                    fit: BoxFit.cover,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 24),
               const Text(
                 '代号零',
                 style: TextStyle(
                   color: AppTheme.paper,
-                  fontSize: 44,
+                  fontSize: 38,
                   fontWeight: FontWeight.w800,
-                  letterSpacing: 12,
+                  letterSpacing: 10,
                 ),
               ),
               const SizedBox(height: 6),
@@ -52,7 +67,7 @@ class SignInPage extends ConsumerWidget {
                 'AGENT  ·  ZERO',
                 style: TextStyle(
                   color: AppTheme.redline,
-                  fontSize: 12,
+                  fontSize: 11,
                   letterSpacing: 8,
                   fontWeight: FontWeight.w700,
                   fontFamilyFallback: AppTheme.monoFallback,
