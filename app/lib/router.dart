@@ -28,7 +28,12 @@ GoRouter buildRouter() {
       ),
       GoRoute(
         path: '/missions/:id',
-        builder: (_, state) => OperationRoomPage(missionId: state.pathParameters['id']!),
+        // 用 ValueKey(id) 保证卷宗内切换不同 mission 时整棵 page 重建，
+        // 否则 State 复用会卡在旧 missionId 的数据上。
+        builder: (_, state) {
+          final id = state.pathParameters['id']!;
+          return OperationRoomPage(key: ValueKey('mission-$id'), missionId: id);
+        },
       ),
       GoRoute(
         path: '/missions/:id/artifacts/:aid',

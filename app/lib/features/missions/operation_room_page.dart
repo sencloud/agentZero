@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:math' as math;
 
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
@@ -213,6 +212,18 @@ class _OperationRoomPageState extends ConsumerState<OperationRoomPage> {
 
     return Scaffold(
       appBar: AppBar(
+        leading: IconButton(
+          tooltip: '返回任务簿',
+          icon: const Icon(CupertinoIcons.chevron_back, color: AppTheme.paper),
+          onPressed: () {
+            // 从派遣页跳进来时栈空（用了 context.go），fallback 到任务簿
+            if (Navigator.of(context).canPop()) {
+              Navigator.of(context).pop();
+            } else {
+              context.go('/');
+            }
+          },
+        ),
         title: Row(
           children: [
             AppDecor.stamp(
@@ -253,20 +264,7 @@ class _OperationRoomPageState extends ConsumerState<OperationRoomPage> {
         top: false,
         child: Column(
           children: [
-            Stack(
-              clipBehavior: Clip.none,
-              children: [
-                _MissionHeader(mission: m, artifactCount: _artifacts.length),
-                if (m.status.isTerminal)
-                  Positioned(
-                    right: 6,
-                    top: 6,
-                    child: IgnorePointer(
-                      child: _MissionStamp(status: m.status),
-                    ),
-                  ),
-              ],
-            ),
+            _MissionHeader(mission: m, artifactCount: _artifacts.length),
             const Divider(height: 1, color: AppTheme.graphite),
             if (m.seriesSeq > 1 || m.parentId != null) _SeriesNavBar(mission: m),
             if (_reportArtifact != null) _ReportBanner(mission: m, artifact: _reportArtifact!),
@@ -299,61 +297,6 @@ class _OperationRoomPageState extends ConsumerState<OperationRoomPage> {
                     ),
             ),
           ],
-        ),
-      ),
-    );
-  }
-}
-
-// ============== Mission Completed 盖章 ==============
-
-/// 任务终态时叠在头部右上角的斜盖章。
-/// 仿《使命召唤》的接令章戳，按状态切换颜色和文案。
-class _MissionStamp extends StatelessWidget {
-  const _MissionStamp({required this.status});
-  final MissionStatus status;
-
-  @override
-  Widget build(BuildContext context) {
-    String text;
-    Color color;
-    switch (status) {
-      case MissionStatus.done:
-        text = 'MISSION COMPLETED';
-        color = AppTheme.sage;
-        break;
-      case MissionStatus.aborted:
-        text = 'MISSION ABORTED';
-        color = AppTheme.amber;
-        break;
-      case MissionStatus.error:
-        text = 'MISSION FAILED';
-        color = AppTheme.redline;
-        break;
-      default:
-        return const SizedBox.shrink();
-    }
-    return Transform.rotate(
-      angle: -math.pi / 14,
-      alignment: Alignment.centerRight,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-        decoration: BoxDecoration(
-          border: Border.all(color: color.withValues(alpha: 0.85), width: 2.4),
-          color: color.withValues(alpha: 0.06),
-        ),
-        child: Text(
-          text,
-          style: TextStyle(
-            color: color.withValues(alpha: 0.9),
-            fontSize: 16,
-            fontWeight: FontWeight.w900,
-            letterSpacing: 4,
-            fontFamilyFallback: AppTheme.monoFallback,
-            shadows: [
-              Shadow(color: color.withValues(alpha: 0.35), blurRadius: 6),
-            ],
-          ),
         ),
       ),
     );

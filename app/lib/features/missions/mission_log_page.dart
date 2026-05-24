@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -370,7 +372,10 @@ class _MissionCard extends StatelessWidget {
     final isDossier = seriesSize > 1;
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 6),
-      child: InkWell(
+      child: Stack(
+        clipBehavior: Clip.hardEdge,
+        children: [
+          InkWell(
         onTap: () => context.push('/missions/${mission.id}'),
         child: Container(
           padding: const EdgeInsets.all(16),
@@ -452,6 +457,69 @@ class _MissionCard extends StatelessWidget {
                   ),
                 ],
               ),
+            ],
+          ),
+        ),
+      ),
+          if (isTerminal)
+            Positioned(
+              right: -6,
+              bottom: 0,
+              child: IgnorePointer(
+                child: MissionStamp(status: mission.status),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+/// 任务终态时叠在卡片右下的斜盖章。
+/// 仿《使命召唤》接令章戳，按状态切换颜色和文案。
+class MissionStamp extends StatelessWidget {
+  const MissionStamp({super.key, required this.status});
+  final MissionStatus status;
+
+  @override
+  Widget build(BuildContext context) {
+    String text;
+    Color color;
+    switch (status) {
+      case MissionStatus.done:
+        text = 'MISSION COMPLETED';
+        color = AppTheme.sage;
+        break;
+      case MissionStatus.aborted:
+        text = 'MISSION ABORTED';
+        color = AppTheme.amber;
+        break;
+      case MissionStatus.error:
+        text = 'MISSION FAILED';
+        color = AppTheme.redline;
+        break;
+      default:
+        return const SizedBox.shrink();
+    }
+    return Transform.rotate(
+      angle: -math.pi / 14,
+      alignment: Alignment.centerRight,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+        decoration: BoxDecoration(
+          border: Border.all(color: color.withValues(alpha: 0.85), width: 2.2),
+          color: color.withValues(alpha: 0.06),
+        ),
+        child: Text(
+          text,
+          style: TextStyle(
+            color: color.withValues(alpha: 0.9),
+            fontSize: 13,
+            fontWeight: FontWeight.w900,
+            letterSpacing: 3,
+            fontFamilyFallback: AppTheme.monoFallback,
+            shadows: [
+              Shadow(color: color.withValues(alpha: 0.35), blurRadius: 5),
             ],
           ),
         ),
