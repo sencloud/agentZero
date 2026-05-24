@@ -1,7 +1,7 @@
 name: agentzero
 description: "特工·代号零（AgentZero）— 基于 tools/skills/MCP 的超级智能体"
 publish_to: 'none'
-version: 0.1.7+8
+version: 0.1.8+9
 
 environment:
   sdk: ^3.11.5

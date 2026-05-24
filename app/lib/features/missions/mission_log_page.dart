@@ -418,7 +418,8 @@ class _MissionCard extends StatelessWidget {
                       overflow: TextOverflow.ellipsis,
                     ),
                   ),
-                  _StatusChip(status: mission.status),
+                  // 终态由右下角的大盖章表达状态，这里不再重复
+                  if (!isTerminal) _StatusChip(status: mission.status),
                 ],
               ),
               const SizedBox(height: 6),
@@ -463,8 +464,8 @@ class _MissionCard extends StatelessWidget {
       ),
           if (isTerminal)
             Positioned(
-              right: -6,
-              bottom: 0,
+              right: 10,
+              bottom: 8,
               child: IgnorePointer(
                 child: MissionStamp(status: mission.status),
               ),
@@ -502,24 +503,24 @@ class MissionStamp extends StatelessWidget {
         return const SizedBox.shrink();
     }
     return Transform.rotate(
-      angle: -math.pi / 14,
+      angle: -math.pi / 16,
       alignment: Alignment.centerRight,
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
         decoration: BoxDecoration(
-          border: Border.all(color: color.withValues(alpha: 0.85), width: 2.2),
-          color: color.withValues(alpha: 0.06),
+          border: Border.all(color: color.withValues(alpha: 0.85), width: 1.8),
+          color: color.withValues(alpha: 0.08),
         ),
         child: Text(
           text,
           style: TextStyle(
-            color: color.withValues(alpha: 0.9),
-            fontSize: 13,
+            color: color.withValues(alpha: 0.92),
+            fontSize: 11,
             fontWeight: FontWeight.w900,
-            letterSpacing: 3,
+            letterSpacing: 2,
             fontFamilyFallback: AppTheme.monoFallback,
             shadows: [
-              Shadow(color: color.withValues(alpha: 0.35), blurRadius: 5),
+              Shadow(color: color.withValues(alpha: 0.35), blurRadius: 4),
             ],
           ),
         ),
