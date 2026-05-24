@@ -35,6 +35,40 @@ func (a *feedAPI) refresh(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusAccepted, map[string]string{"status": "queued"})
 }
 
+// GET /api/v1/feed/refresh/stream
+// 同步驱动一轮刷新并以 SSE 的方式把每个阶段的进度推给前端。
+func (a *feedAPI) refreshStream(w http.ResponseWriter, r *http.Request) {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		writeError(w, http.StatusInternalServerError, "streaming_unsupported")
+		return
+	}
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache, no-transform")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
+	w.WriteHeader(http.StatusOK)
+	flusher.Flush()
+
+	a.svc.RunRefreshStream(r.Context(), func(ev feed.RefreshEvent) bool {
+		buf, err := json.Marshal(ev)
+		if err != nil {
+			return false
+		}
+		if _, err := w.Write([]byte("data: ")); err != nil {
+			return false
+		}
+		if _, err := w.Write(buf); err != nil {
+			return false
+		}
+		if _, err := w.Write([]byte("\n\n")); err != nil {
+			return false
+		}
+		flusher.Flush()
+		return r.Context().Err() == nil
+	})
+}
+
 // GET /api/v1/feed/topics
 func (a *feedAPI) listTopics(w http.ResponseWriter, r *http.Request) {
 	uid, _ := userIDFrom(r)

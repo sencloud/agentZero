@@ -78,6 +78,7 @@ func NewRouter(d Deps) http.Handler {
 			r.Get("/feed/events", f.listEvents)
 			r.Get("/feed/graph", f.graph)
 			r.Post("/feed/refresh", f.refresh)
+			r.Get("/feed/refresh/stream", f.refreshStream)
 		})
 	})
 

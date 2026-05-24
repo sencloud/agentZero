@@ -133,9 +133,26 @@ func (x *Extractor) ExtractOne(ctx context.Context, e *model.NewsEvent) error {
 	return db.MarkEventExtracted(ctx, x.db, e.ID)
 }
 
+// ExtractProgress 是 ExtractBatchWithProgress 的进度回调入参。
+type ExtractProgress struct {
+	Index int
+	Total int
+	Event *model.NewsEvent
+	Err   error
+}
+
 // ExtractBatch 对一批未抽取的事件依次抽取，限定上限。
 // 优先抽取「被任意用户关心」的事件，省 token。
 func (x *Extractor) ExtractBatch(ctx context.Context, maxEvents int) (int, error) {
+	return x.ExtractBatchWithProgress(ctx, maxEvents, nil)
+}
+
+// ExtractBatchWithProgress 在每一条抽取完成后调一次 onProgress。
+func (x *Extractor) ExtractBatchWithProgress(
+	ctx context.Context,
+	maxEvents int,
+	onProgress func(p ExtractProgress) bool,
+) (int, error) {
 	if maxEvents <= 0 {
 		maxEvents = 10
 	}
@@ -165,15 +182,22 @@ func (x *Extractor) ExtractBatch(ctx context.Context, maxEvents int) (int, error
 	}
 
 	done := 0
-	for _, e := range batch {
+	total := len(batch)
+	for i, e := range batch {
 		if err := ctx.Err(); err != nil {
 			return done, err
 		}
-		if err := x.ExtractOne(ctx, e); err != nil {
-			x.logger.Warn("extract failed", "ev", e.ID, "err", err)
-			continue
+		extractErr := x.ExtractOne(ctx, e)
+		if extractErr != nil {
+			x.logger.Warn("extract failed", "ev", e.ID, "err", extractErr)
+		} else {
+			done++
 		}
-		done++
+		if onProgress != nil {
+			if !onProgress(ExtractProgress{Index: i + 1, Total: total, Event: e, Err: extractErr}) {
+				return done, nil
+			}
+		}
 	}
 	return done, nil
 }

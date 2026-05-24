@@ -221,3 +221,150 @@ func (s *Service) Status(ctx context.Context) (*model.FeedStatus, error) {
 func (s *Service) TriggerFetchNow() {
 	go s.runFetchTick(context.Background(), true)
 }
+
+// RefreshEvent 是 RunRefreshStream 推到上层 SSE 的单条事件。
+//
+// Phase 取值：
+//
+//	"start"          - 整轮刷新开始
+//	"fetch_source"   - 单源抓取完成（含成功/失败/新增条数）
+//	"fetch_done"     - 所有源抓取完毕
+//	"match_done"     - 关键词匹配完成
+//	"extract_event"  - 单条 LLM 抽取完成
+//	"extract_done"   - 抽取阶段结束
+//	"done"           - 整轮刷新结束
+//	"error"          - 致命错误
+type RefreshEvent struct {
+	Phase   string         `json:"phase"`
+	Message string         `json:"message,omitempty"`
+	Data    map[string]any `json:"data,omitempty"`
+}
+
+// RunRefreshStream 同步驱动一轮「抓取 + 匹配 + 抽取」，在每个关键节点把
+// RefreshEvent 推给 emit 回调。emit 返回 false 时立即中止。
+//
+// 该方法不操作 s.lastFetchAt 等共享态（避免和后台 cron 冲突）。
+func (s *Service) RunRefreshStream(ctx context.Context, emit func(ev RefreshEvent) bool) {
+	emitOK := func(ev RefreshEvent) bool {
+		if emit == nil {
+			return true
+		}
+		return emit(ev)
+	}
+
+	if !emitOK(RefreshEvent{Phase: "start", Message: "开始刷新事件流"}) {
+		return
+	}
+
+	tStart := time.Now()
+	totalSources, _ := s.countEnabledSources(ctx)
+	emitOK(RefreshEvent{
+		Phase:   "fetch_start",
+		Message: fmt.Sprintf("拉取 %d 个新闻源", totalSources),
+		Data:    map[string]any{"total_sources": totalSources},
+	})
+
+	totalNew, perErrs, err := s.fetcher.FetchAllWithProgress(ctx, func(r SourceResult) bool {
+		ev := RefreshEvent{
+			Phase: "fetch_source",
+			Data: map[string]any{
+				"source": r.Source.Name,
+				"added":  r.Added,
+			},
+		}
+		if r.Err != nil {
+			ev.Data["error"] = r.Err.Error()
+			ev.Message = fmt.Sprintf("× %s 失败", r.Source.Name)
+		} else {
+			ev.Message = fmt.Sprintf("✓ %s 新增 %d 条", r.Source.Name, r.Added)
+		}
+		return emitOK(ev)
+	})
+	if err != nil {
+		emitOK(RefreshEvent{Phase: "error", Message: "fetch_all_failed: " + err.Error()})
+		return
+	}
+	emitOK(RefreshEvent{
+		Phase:   "fetch_done",
+		Message: fmt.Sprintf("抓取完毕：新增 %d 条，失败 %d 个源", totalNew, len(perErrs)),
+		Data: map[string]any{
+			"total_new":      totalNew,
+			"failed_sources": len(perErrs),
+		},
+	})
+
+	// 匹配阶段（一次性，不细分进度）
+	emitOK(RefreshEvent{Phase: "match_start", Message: "按话题匹配命中事件"})
+	matched, mErr := s.matcher.MatchPending(ctx, 200)
+	if mErr != nil {
+		emitOK(RefreshEvent{Phase: "error", Message: "match_failed: " + mErr.Error()})
+	}
+	emitOK(RefreshEvent{
+		Phase:   "match_done",
+		Message: fmt.Sprintf("匹配完成：%d 条事件参与匹配", matched),
+		Data:    map[string]any{"matched": matched},
+	})
+
+	// 抽取阶段
+	emitOK(RefreshEvent{
+		Phase:   "extract_start",
+		Message: fmt.Sprintf("调用 LLM 抽取实体（上限 %d 条）", s.ExtractPerTick),
+		Data:    map[string]any{"limit": s.ExtractPerTick},
+	})
+	extracted, xErr := s.extractor.ExtractBatchWithProgress(ctx, s.ExtractPerTick, func(p ExtractProgress) bool {
+		ev := RefreshEvent{
+			Phase: "extract_event",
+			Data: map[string]any{
+				"index": p.Index,
+				"total": p.Total,
+				"title": p.Event.Title,
+			},
+		}
+		if p.Err != nil {
+			ev.Data["error"] = p.Err.Error()
+			ev.Message = fmt.Sprintf("× [%d/%d] %s", p.Index, p.Total, truncateUTF8(p.Event.Title, 28))
+		} else {
+			ev.Message = fmt.Sprintf("✓ [%d/%d] %s", p.Index, p.Total, truncateUTF8(p.Event.Title, 28))
+		}
+		return emitOK(ev)
+	})
+	if xErr != nil {
+		s.logger.Warn("refresh extract failed", "err", xErr)
+	}
+	emitOK(RefreshEvent{
+		Phase:   "extract_done",
+		Message: fmt.Sprintf("抽取完成：%d 条", extracted),
+		Data:    map[string]any{"extracted": extracted},
+	})
+
+	// 更新 last_fetch_at / last_error
+	if totalSources > 0 && len(perErrs) >= totalSources {
+		s.setLastError(fmt.Sprintf("all %d source(s) failed", totalSources))
+	} else {
+		s.setLastError("")
+	}
+	s.mu.Lock()
+	s.lastFetchAt = time.Now()
+	s.mu.Unlock()
+	_ = db.SetFeedStateValue(ctx, s.db, "last_fetch_at", time.Now().UTC().Format(time.RFC3339))
+
+	emitOK(RefreshEvent{
+		Phase:   "done",
+		Message: fmt.Sprintf("刷新完成，总耗时 %s", time.Since(tStart).Round(time.Millisecond)),
+		Data: map[string]any{
+			"took_ms":   time.Since(tStart).Milliseconds(),
+			"new":       totalNew,
+			"matched":   matched,
+			"extracted": extracted,
+		},
+	})
+}
+
+// truncateUTF8 把中文标题按 rune 截断，避免拆出半个字符。
+func truncateUTF8(s string, max int) string {
+	r := []rune(s)
+	if len(r) <= max {
+		return s
+	}
+	return string(r[:max]) + "…"
+}

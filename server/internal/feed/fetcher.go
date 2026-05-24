@@ -36,8 +36,24 @@ func NewFetcher(database *sql.DB, logger *slog.Logger) *Fetcher {
 	return &Fetcher{db: database, logger: logger, parser: p, client: c}
 }
 
+// SourceResult 表示单个源的拉取结果，给 FetchAllWithProgress 的回调用。
+type SourceResult struct {
+	Source *model.NewsSource
+	Added  int
+	Err    error
+}
+
 // FetchAll 拉一遍所有 enabled 源。返回 (newEvents, perSourceErrors)。
 func (f *Fetcher) FetchAll(ctx context.Context) (int, map[int64]string, error) {
+	return f.FetchAllWithProgress(ctx, nil)
+}
+
+// FetchAllWithProgress 拉一遍所有 enabled 源；每完成一个源调用一次 onSource。
+// onSource 返回 false 时立即停止后续抓取（用于上层取消）。
+func (f *Fetcher) FetchAllWithProgress(
+	ctx context.Context,
+	onSource func(r SourceResult) bool,
+) (int, map[int64]string, error) {
 	sources, err := db.ListNewsSources(ctx, f.db, true)
 	if err != nil {
 		return 0, nil, fmt.Errorf("list sources: %w", err)
@@ -56,6 +72,11 @@ func (f *Fetcher) FetchAll(ctx context.Context) (int, map[int64]string, error) {
 			f.logger.Warn("mark source fetched failed", "err", mErr)
 		}
 		total += n
+		if onSource != nil {
+			if !onSource(SourceResult{Source: s, Added: n, Err: err}) {
+				return total, perErrs, nil
+			}
+		}
 	}
 	return total, perErrs, nil
 }

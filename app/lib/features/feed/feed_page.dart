@@ -8,6 +8,7 @@ import '../../core/theme.dart';
 import '../../models/feed.dart';
 import '../../providers/feed.dart';
 import 'feed_graph_canvas.dart';
+import 'feed_refresh_stream.dart';
 
 /// 事件流页：话题 chips + 实体图谱画布 + 命中事件 timeline。
 ///
@@ -22,6 +23,7 @@ class FeedPage extends ConsumerWidget {
     final events = ref.watch(feedEventsProvider);
     final graph = ref.watch(feedGraphProvider);
     final actions = ref.read(feedActionsProvider);
+    final refreshing = ref.watch(feedRefreshProvider).running;
 
     return Scaffold(
       appBar: AppBar(
@@ -39,9 +41,17 @@ class FeedPage extends ConsumerWidget {
             style: TextStyle(color: AppTheme.paper, fontSize: 14, letterSpacing: 4)),
         actions: [
           IconButton(
-            tooltip: '立即刷新',
-            icon: const Icon(CupertinoIcons.refresh, color: AppTheme.paper, size: 18),
-            onPressed: () => actions.refresh(),
+            tooltip: refreshing ? '刷新进行中' : '立即刷新',
+            icon: refreshing
+                ? const SizedBox(
+                    width: 14,
+                    height: 14,
+                    child: CircularProgressIndicator(strokeWidth: 1.5, color: AppTheme.paper),
+                  )
+                : const Icon(CupertinoIcons.refresh, color: AppTheme.paper, size: 18),
+            onPressed: refreshing
+                ? null
+                : () => ref.read(feedRefreshProvider.notifier).start(),
           ),
         ],
       ),
@@ -50,6 +60,7 @@ class FeedPage extends ConsumerWidget {
         child: Column(
           children: [
             _StatusBar(status: status),
+            const FeedRefreshPanel(),
             _TopicsBar(
               topicsAsync: topics,
               onAdd: () => _showAddTopic(context, actions),
