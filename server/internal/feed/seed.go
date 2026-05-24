@@ -15,14 +15,16 @@ import (
 // 这里默认只放国内必通源，运营侧后续可在数据库里直接补充。
 func SeedSources(ctx context.Context, database *sql.DB) error {
 	seeds := []model.NewsSource{
+		// 跑通的源（已验证机房可直连且能正常 parse）
 		{Name: "36 氪", URL: "https://36kr.com/feed", Kind: "rss", Region: "cn", Lang: "zh", Enabled: true},
-		{Name: "虎嗅网", URL: "https://www.huxiu.com/rss/0.xml", Kind: "rss", Region: "cn", Lang: "zh", Enabled: true},
 		{Name: "少数派", URL: "https://sspai.com/feed", Kind: "rss", Region: "cn", Lang: "zh", Enabled: true},
 		{Name: "InfoQ 中文", URL: "https://www.infoq.cn/feed", Kind: "rss", Region: "cn", Lang: "zh", Enabled: true},
-		{Name: "机器之心", URL: "https://www.jiqizhixin.com/rss", Kind: "rss", Region: "cn", Lang: "zh", Enabled: true},
 		{Name: "雷锋网", URL: "https://www.leiphone.com/feed", Kind: "rss", Region: "cn", Lang: "zh", Enabled: true},
-		{Name: "极客公园", URL: "https://www.geekpark.net/rss", Kind: "rss", Region: "cn", Lang: "zh", Enabled: true},
-		{Name: "知乎日报", URL: "https://daily.zhihu.com/feed.xml", Kind: "rss", Region: "cn", Lang: "zh", Enabled: true},
+		// 暂时跑不通的源（超时 / 404 / 非标准 feed），先 disable，运营侧后续可在 DB 里手动调整。
+		{Name: "虎嗅网", URL: "https://www.huxiu.com/rss/0.xml", Kind: "rss", Region: "cn", Lang: "zh", Enabled: false},
+		{Name: "机器之心", URL: "https://www.jiqizhixin.com/rss", Kind: "rss", Region: "cn", Lang: "zh", Enabled: false},
+		{Name: "极客公园", URL: "https://www.geekpark.net/rss", Kind: "rss", Region: "cn", Lang: "zh", Enabled: false},
+		{Name: "知乎日报", URL: "https://daily.zhihu.com/feed.xml", Kind: "rss", Region: "cn", Lang: "zh", Enabled: false},
 	}
 	for i := range seeds {
 		if err := db.UpsertNewsSource(ctx, database, &seeds[i]); err != nil {

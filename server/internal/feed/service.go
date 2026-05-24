@@ -138,7 +138,8 @@ func (s *Service) runFetchTick(ctx context.Context, doExtract bool) {
 	if matched, err := s.matcher.MatchPending(ctx, 200); err != nil {
 		s.logger.Warn("match pending failed", "err", err)
 	} else {
-		s.logger.Info("feed fetched", "new", inserted, "matched_events", matched, "took", time.Since(tStart))
+		s.logger.Info("feed fetched", "new", inserted,
+			"matched_events", matched, "failed_sources", len(perErrs), "took", time.Since(tStart))
 	}
 	if doExtract {
 		if n, err := s.extractor.ExtractBatch(ctx, s.ExtractPerTick); err != nil {
@@ -147,8 +148,10 @@ func (s *Service) runFetchTick(ctx context.Context, doExtract bool) {
 			s.logger.Info("feed extracted", "events", n)
 		}
 	}
-	if len(perErrs) > 0 {
-		s.setLastError(fmt.Sprintf("%d source(s) failed", len(perErrs)))
+	// 仅当所有源都失败（彻底掉线）才算 ERR；部分源失败属正常波动。
+	total, _ := s.countEnabledSources(ctx)
+	if total > 0 && len(perErrs) >= total {
+		s.setLastError(fmt.Sprintf("all %d source(s) failed", total))
 	} else {
 		s.setLastError("")
 	}
@@ -156,6 +159,15 @@ func (s *Service) runFetchTick(ctx context.Context, doExtract bool) {
 	s.lastFetchAt = time.Now()
 	s.mu.Unlock()
 	_ = db.SetFeedStateValue(ctx, s.db, "last_fetch_at", time.Now().UTC().Format(time.RFC3339))
+}
+
+// countEnabledSources 返回当前 enabled=1 的 source 数量。
+func (s *Service) countEnabledSources(ctx context.Context) (int, error) {
+	sources, err := db.ListNewsSources(ctx, s.db, true)
+	if err != nil {
+		return 0, err
+	}
+	return len(sources), nil
 }
 
 func (s *Service) runPruneTick(ctx context.Context) {

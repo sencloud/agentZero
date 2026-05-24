@@ -525,10 +525,6 @@ class _ToolRow extends StatelessWidget {
                             fontFamilyFallback: AppTheme.monoFallback,
                           ),
                         ),
-                        if (locked) ...[
-                          const SizedBox(width: 8),
-                          AppDecor.stamp('STD', border: AppTheme.amber, color: AppTheme.amber),
-                        ],
                       ],
                     ),
                     const SizedBox(height: 4),
