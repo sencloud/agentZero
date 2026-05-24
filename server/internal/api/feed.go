@@ -38,6 +38,7 @@ func (a *feedAPI) refresh(w http.ResponseWriter, _ *http.Request) {
 // GET /api/v1/feed/refresh/stream
 // 同步驱动一轮刷新并以 SSE 的方式把每个阶段的进度推给前端。
 func (a *feedAPI) refreshStream(w http.ResponseWriter, r *http.Request) {
+	uid, _ := userIDFrom(r)
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		writeError(w, http.StatusInternalServerError, "streaming_unsupported")
@@ -50,7 +51,7 @@ func (a *feedAPI) refreshStream(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	flusher.Flush()
 
-	a.svc.RunRefreshStream(r.Context(), func(ev feed.RefreshEvent) bool {
+	a.svc.RunRefreshStream(r.Context(), uid, func(ev feed.RefreshEvent) bool {
 		buf, err := json.Marshal(ev)
 		if err != nil {
 			return false
@@ -217,6 +218,56 @@ func (a *feedAPI) graph(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"nodes": nodes, "edges": edges})
+}
+
+// GET /api/v1/feed/sources
+// 列出全部新闻源（含 enabled 状态、category、description），给客户端
+// 「源库管理」用。
+func (a *feedAPI) listSources(w http.ResponseWriter, r *http.Request) {
+	srcs, err := db.ListNewsSources(r.Context(), a.db, false)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "list_sources_failed: "+err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"sources": srcs})
+}
+
+// POST /api/v1/feed/sources/toggle  body: {ids: [int64], enabled: bool}
+// 批量启用 / 禁用源。
+func (a *feedAPI) toggleSources(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		IDs     []int64 `json:"ids"`
+		Enabled bool    `json:"enabled"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_body: "+err.Error())
+		return
+	}
+	if len(body.IDs) == 0 {
+		writeError(w, http.StatusBadRequest, "ids_required")
+		return
+	}
+	if err := db.SetSourceEnabled(r.Context(), a.db, body.IDs, body.Enabled); err != nil {
+		writeError(w, http.StatusInternalServerError, "toggle_failed: "+err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// POST /api/v1/feed/sources/recommend
+// 让 LLM 按当前用户的话题做一次智能选源，返回新启用的源列表。
+func (a *feedAPI) recommendSources(w http.ResponseWriter, r *http.Request) {
+	uid, _ := userIDFrom(r)
+	rec, err := a.svc.Recommend(r.Context(), uid)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "recommend_failed: "+err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"newly_enabled": rec.NewlyEnabled,
+		"already_on":    rec.AlreadyOn,
+		"reason":        rec.Reason,
+	})
 }
 
 const timeFmtRFC3339 = "2006-01-02T15:04:05Z07:00"

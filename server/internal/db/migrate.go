@@ -96,7 +96,9 @@ CREATE TABLE IF NOT EXISTS news_sources (
   kind        TEXT NOT NULL DEFAULT 'rss',
   region      TEXT NOT NULL DEFAULT 'cn',  -- cn / intl_zh / intl_en
   lang        TEXT NOT NULL DEFAULT 'zh',
-  enabled     INTEGER NOT NULL DEFAULT 1,
+  category    TEXT NOT NULL DEFAULT 'general',  -- tech/ai/finance/intl/sports/...
+  description TEXT NOT NULL DEFAULT '',          -- 给 LLM 推荐用的 1-2 句简介
+  enabled     INTEGER NOT NULL DEFAULT 0,
   last_fetch_at TIMESTAMP,
   last_error  TEXT NOT NULL DEFAULT '',
   created_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -173,6 +175,8 @@ var addColumns = []colDecl{
 	{"missions", "series_id", "TEXT NOT NULL DEFAULT ''"},
 	{"missions", "series_seq", "INTEGER NOT NULL DEFAULT 1"},
 	{"missions", "parent_id", "TEXT"},
+	{"news_sources", "category", "TEXT NOT NULL DEFAULT 'general'"},
+	{"news_sources", "description", "TEXT NOT NULL DEFAULT ''"},
 }
 
 // Migrate 应用 schema。SQLite 的 CREATE IF NOT EXISTS 是幂等的，可以反复调用。

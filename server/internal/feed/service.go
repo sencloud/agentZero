@@ -25,10 +25,11 @@ type Service struct {
 	db     *sql.DB
 	logger *slog.Logger
 
-	fetcher   *Fetcher
-	matcher   *Matcher
-	extractor *Extractor
-	pruner    *Pruner
+	fetcher     *Fetcher
+	matcher     *Matcher
+	extractor   *Extractor
+	pruner      *Pruner
+	recommender *Recommender
 
 	FetchInterval  time.Duration
 	PruneInterval  time.Duration
@@ -71,7 +72,14 @@ func NewService(database *sql.DB, llmClient *llm.Client, logger *slog.Logger, cf
 	s.matcher = NewMatcher(database, logger)
 	s.extractor = NewExtractor(database, llmClient, logger, cfg.ExtractModel)
 	s.pruner = NewPruner(database, logger)
+	s.recommender = NewRecommender(database, llmClient, logger, cfg.ExtractModel)
 	return s
+}
+
+// Recommend 让 LLM 看一眼用户的话题，自动启用最相关的源。
+// 不带 SSE，用于添加话题等触发场景。
+func (s *Service) Recommend(ctx context.Context, userID int64) (*RecommendResult, error) {
+	return s.recommender.Recommend(ctx, userID)
 }
 
 // Start 启动协调 goroutine。重复调用是 no-op。
@@ -240,11 +248,11 @@ type RefreshEvent struct {
 	Data    map[string]any `json:"data,omitempty"`
 }
 
-// RunRefreshStream 同步驱动一轮「抓取 + 匹配 + 抽取」，在每个关键节点把
-// RefreshEvent 推给 emit 回调。emit 返回 false 时立即中止。
+// RunRefreshStream 同步驱动一轮「推荐源 + 抓取 + 匹配 + 抽取」，
+// 在每个关键节点把 RefreshEvent 推给 emit 回调。emit 返回 false 时立即中止。
 //
 // 该方法不操作 s.lastFetchAt 等共享态（避免和后台 cron 冲突）。
-func (s *Service) RunRefreshStream(ctx context.Context, emit func(ev RefreshEvent) bool) {
+func (s *Service) RunRefreshStream(ctx context.Context, userID int64, emit func(ev RefreshEvent) bool) {
 	emitOK := func(ev RefreshEvent) bool {
 		if emit == nil {
 			return true
@@ -257,6 +265,42 @@ func (s *Service) RunRefreshStream(ctx context.Context, emit func(ev RefreshEven
 	}
 
 	tStart := time.Now()
+
+	// ===== 阶段 0：LLM 智能选源（仅在用户有话题时跑） =====
+	if userID > 0 {
+		topics, _ := db.ListTopics(ctx, s.db, userID)
+		if len(topics) > 0 {
+			emitOK(RefreshEvent{
+				Phase:   "recommend_start",
+				Message: fmt.Sprintf("LLM 按 %d 个话题智能选源", len(topics)),
+				Data:    map[string]any{"topics": len(topics)},
+			})
+			rec, err := s.recommender.Recommend(ctx, userID)
+			if err != nil {
+				emitOK(RefreshEvent{Phase: "recommend_error",
+					Message: "选源失败：" + err.Error()})
+			} else {
+				names := make([]string, 0, len(rec.NewlyEnabled))
+				for _, n := range rec.NewlyEnabled {
+					names = append(names, n.Name)
+				}
+				msg := fmt.Sprintf("新启用 %d 个源", len(rec.NewlyEnabled))
+				if rec.Reason != "" {
+					msg += " · " + rec.Reason
+				}
+				emitOK(RefreshEvent{
+					Phase:   "recommend_done",
+					Message: msg,
+					Data: map[string]any{
+						"newly_enabled": names,
+						"already_on":    len(rec.AlreadyOn),
+						"reason":        rec.Reason,
+					},
+				})
+			}
+		}
+	}
+
 	totalSources, _ := s.countEnabledSources(ctx)
 	emitOK(RefreshEvent{
 		Phase:   "fetch_start",

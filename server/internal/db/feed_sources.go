@@ -9,21 +9,23 @@ import (
 )
 
 // UpsertNewsSource 插入或更新一个新闻源。按 url 唯一。
+// 注意：upsert 时不覆盖 enabled，避免每次 seed 把用户手动启用的源关掉。
 func UpsertNewsSource(ctx context.Context, db *sql.DB, s *model.NewsSource) error {
 	enabled := 0
 	if s.Enabled {
 		enabled = 1
 	}
 	res, err := db.ExecContext(ctx, `
-		INSERT INTO news_sources (name, url, kind, region, lang, enabled)
-		VALUES (?, ?, ?, ?, ?, ?)
+		INSERT INTO news_sources (name, url, kind, region, lang, category, description, enabled)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(url) DO UPDATE SET
 		  name = excluded.name,
 		  kind = excluded.kind,
 		  region = excluded.region,
 		  lang = excluded.lang,
-		  enabled = excluded.enabled
-	`, s.Name, s.URL, s.Kind, s.Region, s.Lang, enabled)
+		  category = excluded.category,
+		  description = excluded.description
+	`, s.Name, s.URL, s.Kind, s.Region, s.Lang, s.Category, s.Description, enabled)
 	if err != nil {
 		return err
 	}
@@ -33,13 +35,31 @@ func UpsertNewsSource(ctx context.Context, db *sql.DB, s *model.NewsSource) erro
 	return nil
 }
 
+// SetSourceEnabled 单独切换 enabled 位。
+func SetSourceEnabled(ctx context.Context, db *sql.DB, ids []int64, enabled bool) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	val := 0
+	if enabled {
+		val = 1
+	}
+	q := `UPDATE news_sources SET enabled = ? WHERE id IN (` + intsPlaceholder(len(ids)) + `)`
+	args := []any{val}
+	for _, id := range ids {
+		args = append(args, id)
+	}
+	_, err := db.ExecContext(ctx, q, args...)
+	return err
+}
+
 // ListNewsSources 列出全部新闻源；onlyEnabled=true 时只返回 enabled=1 的。
 func ListNewsSources(ctx context.Context, db *sql.DB, onlyEnabled bool) ([]*model.NewsSource, error) {
-	q := `SELECT id, name, url, kind, region, lang, enabled, last_fetch_at, last_error, created_at FROM news_sources`
+	q := `SELECT id, name, url, kind, region, lang, category, description, enabled, last_fetch_at, last_error, created_at FROM news_sources`
 	if onlyEnabled {
 		q += ` WHERE enabled = 1`
 	}
-	q += ` ORDER BY id ASC`
+	q += ` ORDER BY category, id ASC`
 	rows, err := db.QueryContext(ctx, q)
 	if err != nil {
 		return nil, err
@@ -56,6 +76,20 @@ func ListNewsSources(ctx context.Context, db *sql.DB, onlyEnabled bool) ([]*mode
 	return out, rows.Err()
 }
 
+func intsPlaceholder(n int) string {
+	if n <= 0 {
+		return ""
+	}
+	out := make([]byte, 0, n*2-1)
+	for i := 0; i < n; i++ {
+		if i > 0 {
+			out = append(out, ',')
+		}
+		out = append(out, '?')
+	}
+	return string(out)
+}
+
 // MarkNewsSourceFetched 记录最后一次抓取结果（成功或带错误）。
 func MarkNewsSourceFetched(ctx context.Context, db *sql.DB, sourceID int64, errMsg string) error {
 	_, err := db.ExecContext(ctx, `
@@ -69,7 +103,7 @@ func scanNewsSource(rows *sql.Rows) (*model.NewsSource, error) {
 	var enabled int
 	var lastFetch sql.NullTime
 	if err := rows.Scan(&s.ID, &s.Name, &s.URL, &s.Kind, &s.Region, &s.Lang,
-		&enabled, &lastFetch, &s.LastError, &s.CreatedAt); err != nil {
+		&s.Category, &s.Description, &enabled, &lastFetch, &s.LastError, &s.CreatedAt); err != nil {
 		return nil, err
 	}
 	s.Enabled = enabled != 0

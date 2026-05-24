@@ -41,6 +41,11 @@ class FeedPage extends ConsumerWidget {
             style: TextStyle(color: AppTheme.paper, fontSize: 14, letterSpacing: 4)),
         actions: [
           IconButton(
+            tooltip: '源库',
+            icon: const Icon(CupertinoIcons.tray_full, color: AppTheme.paper, size: 18),
+            onPressed: () => _showSourcesSheet(context),
+          ),
+          IconButton(
             tooltip: refreshing ? '刷新进行中' : '立即刷新',
             icon: refreshing
                 ? const SizedBox(
@@ -180,7 +185,240 @@ class FeedPage extends ConsumerWidget {
     );
     if (added != null && added.isNotEmpty) {
       await actions.addTopic(added);
+      if (!context.mounted) return;
+      // 异步让 LLM 智能选源；不阻塞输入流程，结果通过 SnackBar 提示
+      // ignore: unawaited_futures
+      _silentRecommend(context, actions);
     }
+  }
+
+  Future<void> _silentRecommend(BuildContext context, FeedActions actions) async {
+    try {
+      final r = await actions.recommendSources();
+      if (!context.mounted) return;
+      if (r.newlyEnabled.isEmpty) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: AppTheme.carbon,
+          content: Text(
+            'LLM 推荐启用：${r.newlyEnabled.map((s) => s.name).join("、")}'
+            '${r.reason.isNotEmpty ? "  ·  ${r.reason}" : ""}',
+            style: const TextStyle(color: AppTheme.paper, fontSize: 12),
+          ),
+          duration: const Duration(seconds: 4),
+        ),
+      );
+    } catch (_) {
+      // 静默：推荐失败不打断用户
+    }
+  }
+
+  Future<void> _showSourcesSheet(BuildContext context) async {
+    await showModalBottomSheet(
+      context: context,
+      backgroundColor: AppTheme.ink,
+      isScrollControlled: true,
+      builder: (_) => const _SourcesSheet(),
+    );
+  }
+}
+
+class _SourcesSheet extends ConsumerWidget {
+  const _SourcesSheet();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final sources = ref.watch(feedSourcesProvider);
+    final actions = ref.read(feedActionsProvider);
+    return DraggableScrollableSheet(
+      expand: false,
+      initialChildSize: 0.85,
+      minChildSize: 0.5,
+      maxChildSize: 0.95,
+      builder: (_, ctrl) {
+        return Column(
+          children: [
+            Container(
+              padding: const EdgeInsets.fromLTRB(16, 12, 12, 12),
+              decoration: const BoxDecoration(
+                border: Border(bottom: BorderSide(color: AppTheme.graphite, width: 0.6)),
+              ),
+              child: Row(
+                children: [
+                  const Text('源库',
+                      style: TextStyle(
+                        color: AppTheme.paper,
+                        fontSize: 14,
+                        letterSpacing: 4,
+                        fontWeight: FontWeight.w700,
+                      )),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: sources.when(
+                      loading: () => const Text('加载中…',
+                          style: TextStyle(color: AppTheme.muted, fontSize: 11)),
+                      error: (e, _) => Text('$e',
+                          style: const TextStyle(color: AppTheme.redline, fontSize: 11)),
+                      data: (list) {
+                        final on = list.where((s) => s.enabled).length;
+                        return Text('已启用 $on / ${list.length}',
+                            style: const TextStyle(
+                                color: AppTheme.muted, fontSize: 11, letterSpacing: 2));
+                      },
+                    ),
+                  ),
+                  OutlinedButton.icon(
+                    icon: const Icon(CupertinoIcons.sparkles, size: 14),
+                    label: const Text('LLM 推荐'),
+                    onPressed: () async {
+                      final r = await actions.recommendSources();
+                      if (!context.mounted) return;
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          backgroundColor: AppTheme.carbon,
+                          content: Text(
+                            r.newlyEnabled.isEmpty
+                                ? '推荐完成，没有新增启用源'
+                                : '新启用 ${r.newlyEnabled.length} 个：${r.newlyEnabled.map((s) => s.name).join("、")}',
+                            style: const TextStyle(color: AppTheme.paper, fontSize: 12),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: sources.when(
+                loading: () => const Center(
+                  child: SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2, color: AppTheme.paper),
+                  ),
+                ),
+                error: (e, _) => Center(
+                    child: Text('源库加载失败：$e',
+                        style: const TextStyle(color: AppTheme.redline, fontSize: 12))),
+                data: (list) {
+                  // 按 category 分组渲染
+                  final grouped = <String, List<NewsSource>>{};
+                  for (final s in list) {
+                    grouped.putIfAbsent(s.category, () => []).add(s);
+                  }
+                  final cats = grouped.keys.toList()..sort();
+                  return ListView(
+                    controller: ctrl,
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    children: [
+                      for (final cat in cats) ...[
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(4, 14, 4, 6),
+                          child: Text(
+                            _categoryLabel(cat),
+                            style: const TextStyle(
+                              color: AppTheme.amber,
+                              fontSize: 10,
+                              letterSpacing: 3,
+                              fontFamilyFallback: AppTheme.monoFallback,
+                            ),
+                          ),
+                        ),
+                        for (final s in grouped[cat]!)
+                          _SourceTile(
+                            source: s,
+                            onToggle: (en) => actions.toggleSources([s.id], en),
+                          ),
+                      ],
+                      const SizedBox(height: 24),
+                    ],
+                  );
+                },
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  String _categoryLabel(String c) {
+    switch (c) {
+      case 'tech':
+        return '科技综合';
+      case 'ai':
+        return 'AI · 大模型';
+      case 'dev':
+        return '开发者 · 工程';
+      case 'finance':
+        return '财经 · 商业';
+      case 'intl':
+        return '国际时政';
+      case 'sports':
+        return '体育';
+      case 'culture':
+        return '文化';
+      case 'science':
+        return '科学 · 学术';
+      case 'design':
+        return '设计';
+      case 'health':
+        return '健康 · 医疗';
+      default:
+        return c.toUpperCase();
+    }
+  }
+}
+
+class _SourceTile extends StatelessWidget {
+  const _SourceTile({required this.source, required this.onToggle});
+  final NewsSource source;
+  final Future<void> Function(bool enabled) onToggle;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.symmetric(vertical: 4),
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: AppTheme.carbon,
+        border: Border.all(
+          color: source.enabled ? AppTheme.paper.withValues(alpha: 0.5) : AppTheme.graphite,
+          width: source.enabled ? 1.0 : 0.6,
+        ),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(source.name,
+                    style: const TextStyle(
+                      color: AppTheme.paper,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      letterSpacing: 1.5,
+                    )),
+                if (source.description.isNotEmpty) ...[
+                  const SizedBox(height: 2),
+                  Text(source.description,
+                      style: const TextStyle(color: AppTheme.pen, fontSize: 11, height: 1.4)),
+                ],
+              ],
+            ),
+          ),
+          const SizedBox(width: 12),
+          Switch(
+            value: source.enabled,
+            activeThumbColor: AppTheme.redline,
+            inactiveThumbColor: AppTheme.muted,
+            onChanged: (v) => onToggle(v),
+          ),
+        ],
+      ),
+    );
   }
 }
 

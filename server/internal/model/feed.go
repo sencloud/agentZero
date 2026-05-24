@@ -20,6 +20,8 @@ type NewsSource struct {
 	Kind        string     `json:"kind"`   // rss
 	Region      string     `json:"region"` // cn / intl_zh / intl_en
 	Lang        string     `json:"lang"`   // zh / en
+	Category    string     `json:"category"`    // tech / ai / finance / intl / sports / culture / dev …
+	Description string     `json:"description"` // 1-2 句源简介，给 LLM 推荐用
 	Enabled     bool       `json:"enabled"`
 	LastFetchAt *time.Time `json:"last_fetch_at,omitempty"`
 	LastError   string     `json:"last_error,omitempty"`

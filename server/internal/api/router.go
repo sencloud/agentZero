@@ -79,6 +79,9 @@ func NewRouter(d Deps) http.Handler {
 			r.Get("/feed/graph", f.graph)
 			r.Post("/feed/refresh", f.refresh)
 			r.Get("/feed/refresh/stream", f.refreshStream)
+			r.Get("/feed/sources", f.listSources)
+			r.Post("/feed/sources/toggle", f.toggleSources)
+			r.Post("/feed/sources/recommend", f.recommendSources)
 		})
 	})
 

@@ -46,6 +46,13 @@ final feedGraphProvider = FutureProvider.autoDispose<FeedGraph>((ref) async {
   return FeedGraph.fromJson(Map<String, dynamic>.from(res.data));
 });
 
+final feedSourcesProvider = FutureProvider.autoDispose<List<NewsSource>>((ref) async {
+  final dio = ref.watch(apiClientProvider).dio;
+  final res = await dio.get('/feed/sources');
+  final list = (res.data['sources'] as List?) ?? const [];
+  return list.map((e) => NewsSource.fromJson(Map<String, dynamic>.from(e))).toList();
+});
+
 class FeedActions {
   FeedActions(this._ref);
   final Ref _ref;
@@ -75,6 +82,24 @@ class FeedActions {
     _ref.invalidate(feedStatusProvider);
     _ref.invalidate(feedEventsProvider);
     _ref.invalidate(feedGraphProvider);
+  }
+
+  Future<RecommendResult> recommendSources() async {
+    final dio = _ref.read(apiClientProvider).dio;
+    final res = await dio.post('/feed/sources/recommend');
+    _ref.invalidate(feedSourcesProvider);
+    _ref.invalidate(feedStatusProvider);
+    return RecommendResult.fromJson(Map<String, dynamic>.from(res.data));
+  }
+
+  Future<void> toggleSources(List<int> ids, bool enabled) async {
+    final dio = _ref.read(apiClientProvider).dio;
+    await dio.post('/feed/sources/toggle', data: {
+      'ids': ids,
+      'enabled': enabled,
+    });
+    _ref.invalidate(feedSourcesProvider);
+    _ref.invalidate(feedStatusProvider);
   }
 }
 

@@ -175,3 +175,52 @@ DateTime? _parseTime(dynamic v) {
   if (v is String) return DateTime.tryParse(v);
   return null;
 }
+
+/// 新闻源（给「源库管理」用）。
+class NewsSource {
+  NewsSource({
+    required this.id,
+    required this.name,
+    required this.url,
+    required this.category,
+    required this.description,
+    required this.enabled,
+    required this.region,
+    required this.lang,
+  });
+
+  final int id;
+  final String name;
+  final String url;
+  final String category;
+  final String description;
+  final bool enabled;
+  final String region;
+  final String lang;
+
+  factory NewsSource.fromJson(Map<String, dynamic> j) => NewsSource(
+        id: (j['id'] as num).toInt(),
+        name: (j['name'] as String?) ?? '',
+        url: (j['url'] as String?) ?? '',
+        category: (j['category'] as String?) ?? 'general',
+        description: (j['description'] as String?) ?? '',
+        enabled: j['enabled'] == true,
+        region: (j['region'] as String?) ?? 'cn',
+        lang: (j['lang'] as String?) ?? 'zh',
+      );
+}
+
+/// LLM 智能选源结果。
+class RecommendResult {
+  RecommendResult({required this.newlyEnabled, required this.reason});
+
+  final List<NewsSource> newlyEnabled;
+  final String reason;
+
+  factory RecommendResult.fromJson(Map<String, dynamic> j) => RecommendResult(
+        newlyEnabled: ((j['newly_enabled'] as List?) ?? const [])
+            .map((e) => NewsSource.fromJson(Map<String, dynamic>.from(e)))
+            .toList(),
+        reason: (j['reason'] as String?) ?? '',
+      );
+}

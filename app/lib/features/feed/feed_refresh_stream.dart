@@ -292,6 +292,12 @@ class _EventRow extends StatelessWidget {
     switch (phase) {
       case 'start':
         return 'START';
+      case 'recommend_start':
+        return 'PICK';
+      case 'recommend_done':
+        return 'PICKED';
+      case 'recommend_error':
+        return 'PICK✗';
       case 'fetch_start':
         return 'FETCH';
       case 'fetch_source':
@@ -320,11 +326,13 @@ class _EventRow extends StatelessWidget {
       case 'fetch_source':
       case 'extract_event':
         return AppTheme.paper;
+      case 'recommend_done':
       case 'fetch_done':
       case 'extract_done':
       case 'match_done':
       case 'done':
         return AppTheme.amber;
+      case 'recommend_error':
       case 'error':
         return AppTheme.redline;
       default:
