@@ -10,6 +10,7 @@ import '../../core/theme.dart';
 import '../../models/mission.dart';
 import '../../providers/auth.dart';
 import '../../providers/missions.dart';
+import '../feed/feed_status_chip.dart';
 
 /// 任务簿主屏（M3b）。
 ///
@@ -128,7 +129,6 @@ class _MissionLogShell extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final date = DateFormat('yyyy.MM.dd').format(DateTime.now());
     return Scaffold(
       appBar: AppBar(
         titleSpacing: 12,
@@ -143,12 +143,7 @@ class _MissionLogShell extends StatelessWidget {
             const SizedBox(width: 10),
             const Text('任务簿', style: TextStyle(color: AppTheme.paper, fontSize: 14, letterSpacing: 4)),
             const Spacer(),
-            Text('DATE · $date', style: const TextStyle(
-              color: AppTheme.pen,
-              fontSize: 10,
-              letterSpacing: 3,
-              fontFamilyFallback: AppTheme.monoFallback,
-            )),
+            const FeedStatusChip(),
           ],
         ),
       ),

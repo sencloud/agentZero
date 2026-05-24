@@ -76,6 +76,92 @@ CREATE TABLE IF NOT EXISTS skills (
   created_at         TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_skills_user ON skills(user_id, created_at DESC);
+
+-- ========================= 事件流图谱（v0.2.0） =========================
+
+CREATE TABLE IF NOT EXISTS topics (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id     INTEGER NOT NULL REFERENCES users(id),
+  name        TEXT NOT NULL,
+  weight      REAL NOT NULL DEFAULT 1.0,
+  created_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE(user_id, name)
+);
+CREATE INDEX IF NOT EXISTS idx_topics_user ON topics(user_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS news_sources (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  name        TEXT NOT NULL,
+  url         TEXT NOT NULL UNIQUE,   -- RSS / feed URL
+  kind        TEXT NOT NULL DEFAULT 'rss',
+  region      TEXT NOT NULL DEFAULT 'cn',  -- cn / intl_zh / intl_en
+  lang        TEXT NOT NULL DEFAULT 'zh',
+  enabled     INTEGER NOT NULL DEFAULT 1,
+  last_fetch_at TIMESTAMP,
+  last_error  TEXT NOT NULL DEFAULT '',
+  created_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS news_events (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  source_id     INTEGER NOT NULL REFERENCES news_sources(id),
+  url           TEXT NOT NULL UNIQUE,
+  title         TEXT NOT NULL,
+  summary       TEXT NOT NULL DEFAULT '',
+  content       TEXT NOT NULL DEFAULT '',
+  lang          TEXT NOT NULL DEFAULT 'zh',
+  published_at  TIMESTAMP,
+  fetched_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  extracted     INTEGER NOT NULL DEFAULT 0   -- 0=未抽取实体 1=已抽取
+);
+CREATE INDEX IF NOT EXISTS idx_news_events_pub ON news_events(published_at DESC);
+CREATE INDEX IF NOT EXISTS idx_news_events_src_pub ON news_events(source_id, published_at DESC);
+
+CREATE TABLE IF NOT EXISTS entities (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  type          TEXT NOT NULL,  -- person / org / place / concept / event
+  name          TEXT NOT NULL,
+  weight        REAL NOT NULL DEFAULT 1.0,
+  first_seen_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  last_seen_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE(type, name)
+);
+CREATE INDEX IF NOT EXISTS idx_entities_last_seen ON entities(last_seen_at DESC);
+
+CREATE TABLE IF NOT EXISTS event_entities (
+  event_id   INTEGER NOT NULL REFERENCES news_events(id) ON DELETE CASCADE,
+  entity_id  INTEGER NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
+  salience   REAL NOT NULL DEFAULT 1.0,
+  PRIMARY KEY(event_id, entity_id)
+);
+CREATE INDEX IF NOT EXISTS idx_event_entities_entity ON event_entities(entity_id);
+
+CREATE TABLE IF NOT EXISTS entity_relations (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  src_id        INTEGER NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
+  dst_id        INTEGER NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
+  label         TEXT NOT NULL DEFAULT 'related',
+  weight        REAL NOT NULL DEFAULT 1.0,
+  last_seen_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE(src_id, dst_id, label)
+);
+CREATE INDEX IF NOT EXISTS idx_relations_last_seen ON entity_relations(last_seen_at DESC);
+
+CREATE TABLE IF NOT EXISTS user_event_subs (
+  user_id        INTEGER NOT NULL REFERENCES users(id),
+  event_id       INTEGER NOT NULL REFERENCES news_events(id) ON DELETE CASCADE,
+  relevance      REAL NOT NULL DEFAULT 0,
+  matched_topics TEXT NOT NULL DEFAULT '[]',  -- JSON array of topic ids
+  created_at     TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY(user_id, event_id)
+);
+CREATE INDEX IF NOT EXISTS idx_user_event_subs ON user_event_subs(user_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS feed_state (
+  k         TEXT PRIMARY KEY,
+  v         TEXT NOT NULL DEFAULT '',
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
 `
 
 // 增量列：SQLite 不支持 ADD COLUMN IF NOT EXISTS，需要先 PRAGMA table_info 判一下。

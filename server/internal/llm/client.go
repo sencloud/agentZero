@@ -79,6 +79,46 @@ type StreamEvent struct {
 	Err            error
 }
 
+// Chat 发起一次非流式 chat.completions 调用并返回完整响应。
+// 适用于「一次性结构化输出」场景，例如让模型用 response_format=json_object
+// 抽取实体/关系。
+func (c *Client) Chat(ctx context.Context, req *ChatRequest) (*ChatResponse, error) {
+	req.Stream = false
+	req.StreamOptions = nil
+	body, err := json.Marshal(req)
+	if err != nil {
+		return nil, fmt.Errorf("marshal: %w", err)
+	}
+	url := strings.TrimRight(c.BaseURL, "/") + "/chat/completions"
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	httpReq.Header.Set("Authorization", "Bearer "+c.APIKey)
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Accept", "application/json")
+	resp, err := c.HTTPClient.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("http: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 32*1024))
+		var apiErr APIError
+		_ = json.Unmarshal(raw, &apiErr)
+		msg := apiErr.Error.Message
+		if msg == "" {
+			msg = string(raw)
+		}
+		return nil, fmt.Errorf("deepseek http %d: %s", resp.StatusCode, msg)
+	}
+	var out ChatResponse
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return nil, fmt.Errorf("decode: %w", err)
+	}
+	return &out, nil
+}
+
 // Stream 发起一次流式 chat.completions 调用，把解析后的事件推到返回的 chan。
 //
 // 该 chan 会在以下任一情况关闭：

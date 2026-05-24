@@ -7,6 +7,7 @@ import (
 
 	"github.com/agentzero/server/internal/agent"
 	"github.com/agentzero/server/internal/auth"
+	"github.com/agentzero/server/internal/feed"
 	"github.com/agentzero/server/internal/tools"
 	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
@@ -21,6 +22,7 @@ type Deps struct {
 	Runner   *agent.Runner
 	Broker   *agent.Broker
 	Registry *tools.Registry
+	Feed     *feed.Service
 }
 
 func NewRouter(d Deps) http.Handler {
@@ -31,6 +33,7 @@ func NewRouter(d Deps) http.Handler {
 		broker:   d.Broker,
 		registry: d.Registry,
 	}
+	f := &feedAPI{Handlers: h, svc: d.Feed}
 
 	r := chi.NewRouter()
 	r.Use(chimw.Recoverer)
@@ -67,6 +70,14 @@ func NewRouter(d Deps) http.Handler {
 			r.Get("/missions/{id}/series", m.series)
 			r.Get("/skills", m.listSkills)
 			r.Post("/skills", m.createSkill)
+
+			r.Get("/feed/status", f.status)
+			r.Get("/feed/topics", f.listTopics)
+			r.Post("/feed/topics", f.createTopic)
+			r.Delete("/feed/topics/{id}", f.deleteTopic)
+			r.Get("/feed/events", f.listEvents)
+			r.Get("/feed/graph", f.graph)
+			r.Post("/feed/refresh", f.refresh)
 		})
 	})
 

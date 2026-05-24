@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import 'features/auth/sign_in_page.dart';
+import 'features/feed/feed_page.dart';
 import 'features/missions/artifact_viewer_page.dart';
 import 'features/missions/dispatch_page.dart';
 import 'features/missions/mission_log_page.dart';
@@ -25,6 +26,10 @@ GoRouter buildRouter() {
       GoRoute(
         path: '/missions/new',
         builder: (_, state) => DispatchPage(parentId: state.uri.queryParameters['parent_id']),
+      ),
+      GoRoute(
+        path: '/feed',
+        builder: (_, _) => const FeedPage(),
       ),
       GoRoute(
         path: '/missions/:id',

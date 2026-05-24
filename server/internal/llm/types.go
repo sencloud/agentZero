@@ -70,16 +70,38 @@ type ThinkingMode struct {
 
 // ChatRequest 对应 POST /chat/completions 的请求体。
 type ChatRequest struct {
-	Model           string        `json:"model"`
-	Messages        []Message     `json:"messages"`
-	Tools           []ToolDef     `json:"tools,omitempty"`
-	ToolChoice      string        `json:"tool_choice,omitempty"` // "auto" / "none" / "required"
-	Thinking        *ThinkingMode `json:"thinking,omitempty"`
-	ReasoningEffort string        `json:"reasoning_effort,omitempty"` // "high" / "max"
-	Stream          bool          `json:"stream"`
-	StreamOptions   *StreamOpts   `json:"stream_options,omitempty"`
-	Temperature     *float64      `json:"temperature,omitempty"`
-	MaxTokens       *int          `json:"max_tokens,omitempty"`
+	Model           string          `json:"model"`
+	Messages        []Message       `json:"messages"`
+	Tools           []ToolDef       `json:"tools,omitempty"`
+	ToolChoice      string          `json:"tool_choice,omitempty"` // "auto" / "none" / "required"
+	Thinking        *ThinkingMode   `json:"thinking,omitempty"`
+	ReasoningEffort string          `json:"reasoning_effort,omitempty"` // "high" / "max"
+	Stream          bool            `json:"stream"`
+	StreamOptions   *StreamOpts     `json:"stream_options,omitempty"`
+	Temperature     *float64        `json:"temperature,omitempty"`
+	MaxTokens       *int            `json:"max_tokens,omitempty"`
+	ResponseFormat  *ResponseFormat `json:"response_format,omitempty"`
+}
+
+// ResponseFormat 让模型强制按某种格式输出，最常用是 {"type":"json_object"}。
+type ResponseFormat struct {
+	Type string `json:"type"`
+}
+
+// ChatResponse 是非流式 chat.completions 的响应体（OpenAI 兼容）。
+type ChatResponse struct {
+	ID      string         `json:"id"`
+	Object  string         `json:"object"`
+	Model   string         `json:"model"`
+	Choices []ChatChoice   `json:"choices"`
+	Usage   *UsageInfo     `json:"usage,omitempty"`
+}
+
+// ChatChoice 是非流式响应里的一个 choice。
+type ChatChoice struct {
+	Index        int     `json:"index"`
+	Message      Message `json:"message"`
+	FinishReason string  `json:"finish_reason,omitempty"`
 }
 
 // StreamOpts 让流式响应在最后一个 chunk 里带上 usage。

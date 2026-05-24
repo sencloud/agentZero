@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 	"github.com/agentzero/server/internal/api"
 	"github.com/agentzero/server/internal/auth"
 	"github.com/agentzero/server/internal/db"
+	"github.com/agentzero/server/internal/feed"
 	"github.com/agentzero/server/internal/llm"
 	"github.com/agentzero/server/internal/tools"
 )
@@ -60,6 +62,19 @@ func main() {
 		store, llmClient, registry, broker, logger,
 	)
 
+	// 事件流服务（v0.2.0）：拉新闻 RSS、按 topic 匹配、LLM 抽取实体、画图谱。
+	if err := feed.SeedSources(context.Background(), store); err != nil {
+		logger.Warn("seed news sources failed", "err", err)
+	}
+	feedSvc := feed.NewService(store, llmClient, logger, feed.Config{
+		FetchInterval:  cfg.FeedFetchInterval,
+		PruneInterval:  cfg.FeedPruneInterval,
+		ExtractPerTick: cfg.FeedExtractPerTick,
+		ExtractModel:   cfg.FeedExtractModel,
+	})
+	feedSvc.Start(context.Background())
+	defer feedSvc.Stop()
+
 	srv := &http.Server{
 		Addr: ":" + cfg.Port,
 		Handler: api.NewRouter(api.Deps{
@@ -70,6 +85,7 @@ func main() {
 			Runner:   runner,
 			Broker:   broker,
 			Registry: registry,
+			Feed:     feedSvc,
 		}),
 		ReadHeaderTimeout: 10 * time.Second,
 		// 注意：WriteTimeout 留 0；SSE 长连接需要写超时不限制。
@@ -97,26 +113,34 @@ func main() {
 }
 
 type config struct {
-	Port            string
-	DBPath          string
-	WorkspaceRoot   string
-	JWTSecret       string
-	AppleBundleID   string
-	DeepseekAPIKey  string
-	DeepseekBaseURL string
-	BochaAPIKey     string
+	Port               string
+	DBPath             string
+	WorkspaceRoot      string
+	JWTSecret          string
+	AppleBundleID      string
+	DeepseekAPIKey     string
+	DeepseekBaseURL    string
+	BochaAPIKey        string
+	FeedFetchInterval  time.Duration
+	FeedPruneInterval  time.Duration
+	FeedExtractPerTick int
+	FeedExtractModel   string
 }
 
 func loadConfig() config {
 	c := config{
-		Port:            envOr("PORT", "8080"),
-		DBPath:          envOr("DB_PATH", "/var/lib/agentzero/agentzero.db"),
-		WorkspaceRoot:   envOr("WORKSPACE_ROOT", "/var/lib/agentzero/workspaces"),
-		JWTSecret:       envOr("JWT_SECRET", ""),
-		AppleBundleID:   envOr("APPLE_BUNDLE_ID", "com.agentzero.me"),
-		DeepseekAPIKey:  envOr("DEEPSEEK_API_KEY", ""),
-		DeepseekBaseURL: envOr("DEEPSEEK_BASE_URL", ""),
-		BochaAPIKey:     envOr("BOCHA_API_KEY", ""),
+		Port:               envOr("PORT", "8080"),
+		DBPath:             envOr("DB_PATH", "/var/lib/agentzero/agentzero.db"),
+		WorkspaceRoot:      envOr("WORKSPACE_ROOT", "/var/lib/agentzero/workspaces"),
+		JWTSecret:          envOr("JWT_SECRET", ""),
+		AppleBundleID:      envOr("APPLE_BUNDLE_ID", "com.agentzero.me"),
+		DeepseekAPIKey:     envOr("DEEPSEEK_API_KEY", ""),
+		DeepseekBaseURL:    envOr("DEEPSEEK_BASE_URL", ""),
+		BochaAPIKey:        envOr("BOCHA_API_KEY", ""),
+		FeedFetchInterval:  envDuration("FEED_FETCH_INTERVAL", 30*time.Minute),
+		FeedPruneInterval:  envDuration("FEED_PRUNE_INTERVAL", 6*time.Hour),
+		FeedExtractPerTick: envInt("FEED_EXTRACT_PER_TICK", 8),
+		FeedExtractModel:   envOr("FEED_EXTRACT_MODEL", llm.ModelV4Flash),
 	}
 	if c.JWTSecret == "" {
 		slog.Error("JWT_SECRET environment variable is required")
@@ -136,6 +160,24 @@ func loadConfig() config {
 func envOr(k, d string) string {
 	if v := os.Getenv(k); v != "" {
 		return v
+	}
+	return d
+}
+
+func envDuration(k string, d time.Duration) time.Duration {
+	if v := os.Getenv(k); v != "" {
+		if t, err := time.ParseDuration(v); err == nil {
+			return t
+		}
+	}
+	return d
+}
+
+func envInt(k string, d int) int {
+	if v := os.Getenv(k); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			return n
+		}
 	}
 	return d
 }
