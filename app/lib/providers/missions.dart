@@ -94,6 +94,19 @@ class AbortMissionAction {
 
 final abortMissionProvider = Provider<AbortMissionAction>((ref) => AbortMissionAction(ref));
 
+/// 销毁一个任务（包含 steps / artifacts / workspace）。
+class DeleteMissionAction {
+  DeleteMissionAction(this.ref);
+  final Ref ref;
+  Future<void> call(String id) async {
+    final api = ref.read(apiClientProvider);
+    await api.dio.delete('/missions/$id');
+    ref.invalidate(missionsListProvider);
+  }
+}
+
+final deleteMissionProvider = Provider<DeleteMissionAction>((ref) => DeleteMissionAction(ref));
+
 /// 工件原始内容（不缓存，用于 ArtifactViewerPage 拉取 HTML 等）。
 class ArtifactContent {
   ArtifactContent({required this.bytes, required this.mime, required this.text});

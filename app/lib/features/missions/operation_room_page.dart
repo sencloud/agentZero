@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
@@ -251,7 +252,20 @@ class _OperationRoomPageState extends ConsumerState<OperationRoomPage> {
         top: false,
         child: Column(
           children: [
-            _MissionHeader(mission: m, artifactCount: _artifacts.length),
+            Stack(
+              clipBehavior: Clip.none,
+              children: [
+                _MissionHeader(mission: m, artifactCount: _artifacts.length),
+                if (m.status.isTerminal)
+                  Positioned(
+                    right: 6,
+                    top: 6,
+                    child: IgnorePointer(
+                      child: _MissionStamp(status: m.status),
+                    ),
+                  ),
+              ],
+            ),
             const Divider(height: 1, color: AppTheme.graphite),
             if (_reportArtifact != null) _ReportBanner(mission: m, artifact: _reportArtifact!),
             Expanded(
@@ -278,6 +292,61 @@ class _OperationRoomPageState extends ConsumerState<OperationRoomPage> {
                     ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+// ============== Mission Completed 盖章 ==============
+
+/// 任务终态时叠在头部右上角的斜盖章。
+/// 仿《使命召唤》的接令章戳，按状态切换颜色和文案。
+class _MissionStamp extends StatelessWidget {
+  const _MissionStamp({required this.status});
+  final MissionStatus status;
+
+  @override
+  Widget build(BuildContext context) {
+    String text;
+    Color color;
+    switch (status) {
+      case MissionStatus.done:
+        text = 'MISSION COMPLETED';
+        color = AppTheme.sage;
+        break;
+      case MissionStatus.aborted:
+        text = 'MISSION ABORTED';
+        color = AppTheme.amber;
+        break;
+      case MissionStatus.error:
+        text = 'MISSION FAILED';
+        color = AppTheme.redline;
+        break;
+      default:
+        return const SizedBox.shrink();
+    }
+    return Transform.rotate(
+      angle: -math.pi / 14,
+      alignment: Alignment.centerRight,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+        decoration: BoxDecoration(
+          border: Border.all(color: color.withValues(alpha: 0.85), width: 2.4),
+          color: color.withValues(alpha: 0.06),
+        ),
+        child: Text(
+          text,
+          style: TextStyle(
+            color: color.withValues(alpha: 0.9),
+            fontSize: 16,
+            fontWeight: FontWeight.w900,
+            letterSpacing: 4,
+            fontFamilyFallback: AppTheme.monoFallback,
+            shadows: [
+              Shadow(color: color.withValues(alpha: 0.35), blurRadius: 6),
+            ],
+          ),
         ),
       ),
     );
@@ -443,48 +512,72 @@ Color _statusColor(MissionStatus s) {
 
 // ============== 事件流：折叠 + 渲染 ==============
 
-/// 一个语义块，可能由若干条同类 step 拼接而成。
+/// 一个语义块。
+/// - kind=thinking：聚合一段连续的 thought / tool_call / tool_result，
+///   作为一个可折叠的「思考-动作-回执」记录单元。
+/// - kind=message：最终汇报（连续 message delta 合并）。
+/// - kind=artifact / system：各自独立。
 class _Block {
-  _Block({required this.kind, required this.ts, required this.text, this.payload});
-  final String kind; // thought / message / tool_call / tool_result / artifact / system
+  _Block({required this.kind, required this.ts, this.text = '', this.payload, this.children});
+  final String kind;
   final DateTime ts;
   final String text;
   final Map<String, dynamic>? payload;
+  final List<MissionStep>? children;
 }
 
-/// 把相邻的 thought / message delta 合并成一段，方便阅读。
-/// 其他类型一律保留为单独 block。
+/// 折叠规则：
+///   thought / tool_call / tool_result 视作"思考过程"，吸到同一个 thinking 块；
+///   message delta 合并到同一个 message 块；
+///   artifact / system / 其它各自独立。
 List<_Block> _foldSteps(List<MissionStep> steps) {
   final out = <_Block>[];
-  StringBuffer? buf;
-  String? bufKind;
-  DateTime? bufTs;
+  List<MissionStep>? thinkBuf;
+  DateTime? thinkStart;
+  StringBuffer? msgBuf;
+  DateTime? msgStart;
 
-  void flushBuf() {
-    if (buf != null && buf!.isNotEmpty) {
-      out.add(_Block(kind: bufKind!, ts: bufTs!, text: buf!.toString()));
+  void flushThink() {
+    if (thinkBuf != null && thinkBuf!.isNotEmpty) {
+      out.add(_Block(kind: 'thinking', ts: thinkStart!, children: thinkBuf));
     }
-    buf = null;
-    bufKind = null;
-    bufTs = null;
+    thinkBuf = null;
+    thinkStart = null;
+  }
+
+  void flushMsg() {
+    if (msgBuf != null && msgBuf!.isNotEmpty) {
+      out.add(_Block(kind: 'message', ts: msgStart!, text: msgBuf!.toString()));
+    }
+    msgBuf = null;
+    msgStart = null;
+  }
+
+  void flushAll() {
+    flushThink();
+    flushMsg();
   }
 
   for (final s in steps) {
-    if (s.type == 'thought' || s.type == 'message') {
-      if (bufKind == s.type) {
-        buf!.write((s.payload['text'] as String?) ?? '');
-      } else {
-        flushBuf();
-        bufKind = s.type;
-        bufTs = s.ts;
-        buf = StringBuffer((s.payload['text'] as String?) ?? '');
-      }
+    final t = s.type;
+    if (t == 'thought' || t == 'tool_call' || t == 'tool_result') {
+      flushMsg();
+      thinkBuf ??= <MissionStep>[];
+      thinkStart ??= s.ts;
+      thinkBuf!.add(s);
       continue;
     }
-    flushBuf();
-    out.add(_Block(kind: s.type, ts: s.ts, text: '', payload: s.payload));
+    if (t == 'message') {
+      flushThink();
+      msgBuf ??= StringBuffer();
+      msgStart ??= s.ts;
+      msgBuf!.write((s.payload['text'] as String?) ?? '');
+      continue;
+    }
+    flushAll();
+    out.add(_Block(kind: t, ts: s.ts, payload: s.payload));
   }
-  flushBuf();
+  flushAll();
   return out;
 }
 
@@ -495,14 +588,10 @@ class _EventBlockView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     switch (block.kind) {
-      case 'thought':
-        return _ThoughtBlock(text: block.text, ts: block.ts);
+      case 'thinking':
+        return _ThinkingBlock(steps: block.children!, ts: block.ts);
       case 'message':
         return _MessageBlock(text: block.text, ts: block.ts);
-      case 'tool_call':
-        return _ToolCallBlock(payload: block.payload!, ts: block.ts);
-      case 'tool_result':
-        return _ToolResultBlock(payload: block.payload!, ts: block.ts);
       case 'artifact':
         return _ArtifactBlock(payload: block.payload!, ts: block.ts);
       case 'system':
@@ -534,21 +623,43 @@ class _Timestamp extends StatelessWidget {
   }
 }
 
-class _ThoughtBlock extends StatefulWidget {
-  const _ThoughtBlock({required this.text, required this.ts});
-  final String text;
+/// 思考链：把一段连续的 thought / tool_call / tool_result 合并成一个可折叠卡片。
+/// 默认折叠，头部显示「THINKING · K 字 · N 次调用 · M 次失败」。
+class _ThinkingBlock extends StatefulWidget {
+  const _ThinkingBlock({required this.steps, required this.ts});
+  final List<MissionStep> steps;
   final DateTime ts;
 
   @override
-  State<_ThoughtBlock> createState() => _ThoughtBlockState();
+  State<_ThinkingBlock> createState() => _ThinkingBlockState();
 }
 
-class _ThoughtBlockState extends State<_ThoughtBlock> {
+class _ThinkingBlockState extends State<_ThinkingBlock> {
   bool _expanded = false;
 
   @override
   Widget build(BuildContext context) {
-    final chars = widget.text.length;
+    int chars = 0;
+    int calls = 0;
+    int fails = 0;
+    for (final s in widget.steps) {
+      switch (s.type) {
+        case 'thought':
+          chars += ((s.payload['text'] as String?) ?? '').length;
+          break;
+        case 'tool_call':
+          calls += 1;
+          break;
+        case 'tool_result':
+          if ((s.payload['ok'] as bool?) == false) fails += 1;
+          break;
+      }
+    }
+    final summaryParts = <String>['$chars 字'];
+    if (calls > 0) summaryParts.add('$calls 次调用');
+    if (fails > 0) summaryParts.add('$fails 次失败');
+    final summary = summaryParts.join(' · ');
+
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 8),
       child: Material(
@@ -566,7 +677,12 @@ class _ThoughtBlockState extends State<_ThoughtBlock> {
                 children: [
                   Row(
                     children: [
-                      Container(width: 2, height: 12, color: AppTheme.amber, margin: const EdgeInsets.only(right: 10)),
+                      Container(
+                        width: 2,
+                        height: 12,
+                        color: fails > 0 ? AppTheme.redline : AppTheme.amber,
+                        margin: const EdgeInsets.only(right: 10),
+                      ),
                       const Text('THINKING',
                           style: TextStyle(
                             color: AppTheme.amber,
@@ -576,14 +692,17 @@ class _ThoughtBlockState extends State<_ThoughtBlock> {
                             fontFamilyFallback: AppTheme.monoFallback,
                           )),
                       const SizedBox(width: 8),
-                      Text('· $chars 字',
-                          style: const TextStyle(
-                            color: AppTheme.muted,
-                            fontSize: 10,
-                            letterSpacing: 1,
-                            fontFamilyFallback: AppTheme.monoFallback,
-                          )),
-                      const Spacer(),
+                      Flexible(
+                        child: Text('· $summary',
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: fails > 0 ? AppTheme.redline : AppTheme.muted,
+                              fontSize: 10,
+                              letterSpacing: 1,
+                              fontFamilyFallback: AppTheme.monoFallback,
+                            )),
+                      ),
+                      const SizedBox(width: 8),
                       _Timestamp(ts: widget.ts),
                       const SizedBox(width: 6),
                       Icon(_expanded ? CupertinoIcons.chevron_up : CupertinoIcons.chevron_down,
@@ -591,13 +710,16 @@ class _ThoughtBlockState extends State<_ThoughtBlock> {
                     ],
                   ),
                   if (_expanded) ...[
-                    const SizedBox(height: 10),
+                    const SizedBox(height: 8),
                     Container(
-                      padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
+                      padding: const EdgeInsets.fromLTRB(10, 4, 6, 4),
                       decoration: const BoxDecoration(
                         border: Border(left: BorderSide(color: AppTheme.amber, width: 2)),
                       ),
-                      child: SelectableText(widget.text, style: AppTheme.monoAccent),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: _buildTimeline(widget.steps),
+                      ),
                     ),
                   ],
                 ],
@@ -606,6 +728,52 @@ class _ThoughtBlockState extends State<_ThoughtBlock> {
           ),
         ),
       ),
+    );
+  }
+
+  /// 展开后的时间线：把连续 thought 合并成段落，tool_call/tool_result 用现有卡片。
+  List<Widget> _buildTimeline(List<MissionStep> steps) {
+    final out = <Widget>[];
+    StringBuffer? buf;
+    DateTime? bufTs;
+
+    void flushThought() {
+      if (buf != null && buf!.isNotEmpty) {
+        out.add(_ThoughtSegment(text: buf!.toString(), ts: bufTs!));
+      }
+      buf = null;
+      bufTs = null;
+    }
+
+    for (final s in steps) {
+      if (s.type == 'thought') {
+        buf ??= StringBuffer();
+        bufTs ??= s.ts;
+        buf!.write((s.payload['text'] as String?) ?? '');
+        continue;
+      }
+      flushThought();
+      if (s.type == 'tool_call') {
+        out.add(_ToolCallBlock(payload: s.payload, ts: s.ts));
+      } else if (s.type == 'tool_result') {
+        out.add(_ToolResultBlock(payload: s.payload, ts: s.ts));
+      }
+    }
+    flushThought();
+    return out;
+  }
+}
+
+/// 单段 thought 文本——只在 _ThinkingBlock 展开内部使用。
+class _ThoughtSegment extends StatelessWidget {
+  const _ThoughtSegment({required this.text, required this.ts});
+  final String text;
+  final DateTime ts;
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: SelectableText(text, style: AppTheme.monoAccent),
     );
   }
 }

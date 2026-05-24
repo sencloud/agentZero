@@ -75,6 +75,40 @@ func ListMissions(ctx context.Context, db *sql.DB, userID int64, limit, offset i
 	return out, rows.Err()
 }
 
+// DeleteMission 物理删除一个任务及其相关 steps / artifacts。
+// 注意：调用方应负责 abort + 清理 workspace 目录。
+// 做了 user_id 归属校验，跨用户删除返回 ErrNotFound。
+func DeleteMission(ctx context.Context, db *sql.DB, missionID string, userID int64) error {
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	// 先确认归属
+	var owner int64
+	if err := tx.QueryRowContext(ctx,
+		`SELECT user_id FROM missions WHERE id = ?`, missionID).Scan(&owner); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrNotFound
+		}
+		return err
+	}
+	if owner != userID {
+		return ErrNotFound
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM artifacts WHERE mission_id = ?`, missionID); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM steps WHERE mission_id = ?`, missionID); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM missions WHERE id = ?`, missionID); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
 // UpdateMissionStatus 推进任务生命周期。started_at/ended_at 根据新状态自动写入。
 func UpdateMissionStatus(ctx context.Context, db *sql.DB, missionID string, status model.MissionStatus) error {
 	now := time.Now().UTC()

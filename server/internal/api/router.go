@@ -57,6 +57,7 @@ func NewRouter(d Deps) http.Handler {
 			r.Get("/missions", m.listMine)
 			r.Post("/missions", m.dispatch)
 			r.Get("/missions/{id}", m.detail)
+			r.Delete("/missions/{id}", m.deleteMission)
 			r.Get("/missions/{id}/stream", m.stream)
 			r.Post("/missions/{id}/abort", m.abort)
 			r.Get("/missions/{id}/artifacts/{aid}/content", m.artifactContent)

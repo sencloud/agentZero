@@ -213,18 +213,134 @@ class _MissionList extends ConsumerWidget {
               if (running.isNotEmpty) ...[
                 AppDecor.sectionRule('进行中  ·  ${running.length}'),
                 const SizedBox(height: 4),
-                for (final m in running) _MissionCard(mission: m),
+                for (final m in running) _SwipeableMissionCard(mission: m),
                 const SizedBox(height: 24),
               ],
               if (archived.isNotEmpty) ...[
                 AppDecor.sectionRule('归档  ·  ${archived.length}'),
                 const SizedBox(height: 4),
-                for (final m in archived) _MissionCard(mission: m),
+                for (final m in archived) _SwipeableMissionCard(mission: m),
               ],
             ],
           ),
         );
       },
+    );
+  }
+}
+
+class _SwipeableMissionCard extends ConsumerWidget {
+  const _SwipeableMissionCard({required this.mission});
+  final Mission mission;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return Dismissible(
+      key: ValueKey(mission.id),
+      direction: DismissDirection.endToStart,
+      confirmDismiss: (_) async {
+        return await showDialog<bool>(
+          context: context,
+          builder: (ctx) => _DeleteConfirmDialog(codename: mission.codename),
+        ) ?? false;
+      },
+      onDismissed: (_) async {
+        try {
+          await ref.read(deleteMissionProvider).call(mission.id);
+          if (context.mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                backgroundColor: AppTheme.ink,
+                content: Text('已销毁档案：${mission.codename}',
+                    style: const TextStyle(color: AppTheme.paper)),
+                duration: const Duration(seconds: 2),
+              ),
+            );
+          }
+        } catch (e) {
+          if (context.mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                backgroundColor: AppTheme.redline,
+                content: Text('销毁失败：$e', style: const TextStyle(color: AppTheme.paper)),
+                duration: const Duration(seconds: 4),
+              ),
+            );
+            ref.invalidate(missionsListProvider);
+          }
+        }
+      },
+      background: Container(
+        margin: const EdgeInsets.symmetric(vertical: 6),
+        padding: const EdgeInsets.only(right: 24),
+        alignment: Alignment.centerRight,
+        decoration: BoxDecoration(
+          color: AppTheme.redline,
+          border: Border.all(color: AppTheme.redline, width: 0.8),
+        ),
+        child: const Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(CupertinoIcons.delete_solid, color: AppTheme.paper, size: 22),
+            SizedBox(height: 4),
+            Text('销毁档案',
+                style: TextStyle(
+                  color: AppTheme.paper,
+                  fontSize: 11,
+                  letterSpacing: 3,
+                  fontWeight: FontWeight.w700,
+                  fontFamilyFallback: AppTheme.monoFallback,
+                )),
+          ],
+        ),
+      ),
+      child: _MissionCard(mission: mission),
+    );
+  }
+}
+
+class _DeleteConfirmDialog extends StatelessWidget {
+  const _DeleteConfirmDialog({required this.codename});
+  final String codename;
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
+      backgroundColor: AppTheme.carbon,
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            AppDecor.stamp('PURGE', border: AppTheme.redline, color: AppTheme.redline),
+            const SizedBox(height: 14),
+            Text(
+              '销毁「$codename」档案？',
+              style: const TextStyle(color: AppTheme.paper, fontSize: 17, fontWeight: FontWeight.w700, letterSpacing: 2),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              '该任务、它产出的所有思考、调用回执、工件柜里的产出，都会从行动局抹掉，无法恢复。',
+              style: TextStyle(color: AppTheme.pen, fontSize: 13, height: 1.5),
+            ),
+            const SizedBox(height: 18),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                OutlinedButton(onPressed: () => Navigator.pop(context, false), child: const Text('保留')),
+                const SizedBox(width: 8),
+                FilledButton(
+                  style: FilledButton.styleFrom(backgroundColor: AppTheme.redline),
+                  onPressed: () => Navigator.pop(context, true),
+                  child: const Text('销毁'),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

@@ -125,6 +125,33 @@ func (m *missionAPI) detail(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// ---- DELETE /missions/:id ----
+
+func (m *missionAPI) deleteMission(w http.ResponseWriter, r *http.Request) {
+	uid, _ := userIDFrom(r)
+	id := chi.URLParam(r, "id")
+	// 先确认归属
+	mi, err := db.GetMission(r.Context(), m.db, id, uid)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "mission_not_found")
+		return
+	}
+	// 正在跑的话先撤离，停掉 goroutine
+	if m.runner.IsRunning(id) {
+		m.runner.Abort(id)
+	}
+	// 数据库
+	if err := db.DeleteMission(r.Context(), m.db, id, uid); err != nil {
+		writeError(w, http.StatusInternalServerError, "db_error")
+		return
+	}
+	// workspace 目录（best-effort，失败不致命）
+	if mi.WorkspaceDir != "" {
+		_ = os.RemoveAll(mi.WorkspaceDir)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
 // ---- POST /missions/:id/abort ----
 
 func (m *missionAPI) abort(w http.ResponseWriter, r *http.Request) {
