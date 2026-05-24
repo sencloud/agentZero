@@ -464,8 +464,8 @@ class _MissionCard extends StatelessWidget {
       ),
           if (isTerminal)
             Positioned(
-              right: 10,
-              bottom: 8,
+              right: 12,
+              bottom: 28,
               child: IgnorePointer(
                 child: MissionStamp(status: mission.status),
               ),

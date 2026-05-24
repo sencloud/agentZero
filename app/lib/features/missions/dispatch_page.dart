@@ -35,6 +35,14 @@ class _DispatchPageState extends ConsumerState<DispatchPage> {
   Mission? _parent;
   bool _loadingParent = false;
 
+  /// 是否展开"更多装备"。占位区，后续接 MCP 后会展示真正的可选项。
+  bool _expandMore = false;
+
+  /// 基础装备：后端注册的内建 tools（write_file/read_file/fetch_url/web_search），
+  /// 一律默认勾选 + 不可取消。识别方式：先一律 treat 后端 /tools 返回的全部为基础装备。
+  /// （未来接 MCP 时再用 origin 字段把扩展装备分到「更多」区。）
+  bool _isBaseLoadout(ToolInfo t) => true;
+
   // 代号池：派遣页可随机抽。具备特工感的两字 / 三字短代号。
   static const _codenames = <String>[
     '北极星', '猎户', '苍鹰', '破晓', '夜枭', '潮汐', '孤鸢', '白蚁',
@@ -223,22 +231,47 @@ class _DispatchPageState extends ConsumerState<DispatchPage> {
                     error: (e, _) => Text('装备列表加载失败：$e',
                         style: const TextStyle(color: AppTheme.redline, fontSize: 12)),
                     data: (tools) {
+                      final base = tools.where(_isBaseLoadout).toList();
+                      final extras = tools.where((t) => !_isBaseLoadout(t)).toList();
+                      // 基础装备一律加入 loadout：用 microtask 在下一帧填，避免 build 中修改 set
+                      for (final t in base) {
+                        _selectedTools.add(t.name);
+                      }
                       return Column(
                         children: [
-                          for (final t in tools)
+                          for (final t in base)
                             _ToolRow(
                               tool: t,
-                              selected: _selectedTools.contains(t.name),
-                              onTap: () {
-                                setState(() {
-                                  if (_selectedTools.contains(t.name)) {
-                                    _selectedTools.remove(t.name);
-                                  } else {
-                                    _selectedTools.add(t.name);
-                                  }
-                                });
-                              },
+                              selected: true,
+                              locked: true,
+                              onTap: () {},
                             ),
+                          const SizedBox(height: 12),
+                          _MoreLoadoutButton(
+                            expanded: _expandMore,
+                            extraCount: extras.length,
+                            onTap: () => setState(() => _expandMore = !_expandMore),
+                          ),
+                          if (_expandMore) ...[
+                            const SizedBox(height: 8),
+                            if (extras.isEmpty)
+                              _ComingSoonExtras()
+                            else
+                              for (final t in extras)
+                                _ToolRow(
+                                  tool: t,
+                                  selected: _selectedTools.contains(t.name),
+                                  onTap: () {
+                                    setState(() {
+                                      if (_selectedTools.contains(t.name)) {
+                                        _selectedTools.remove(t.name);
+                                      } else {
+                                        _selectedTools.add(t.name);
+                                      }
+                                    });
+                                  },
+                                ),
+                          ],
                         ],
                       );
                     },
@@ -422,20 +455,32 @@ class _FollowUpBanner extends StatelessWidget {
 }
 
 class _ToolRow extends StatelessWidget {
-  const _ToolRow({required this.tool, required this.selected, required this.onTap});
+  const _ToolRow({
+    required this.tool,
+    required this.selected,
+    required this.onTap,
+    this.locked = false,
+  });
   final ToolInfo tool;
   final bool selected;
   final VoidCallback onTap;
+  /// 锁定时不响应点击，勾选框置灰，并在右侧加 STD 徽章表示「基础内置」。
+  final bool locked;
+
   @override
   Widget build(BuildContext context) {
+    final accent = locked ? AppTheme.amber : AppTheme.redline;
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: InkWell(
-        onTap: onTap,
+        onTap: locked ? null : onTap,
         child: Container(
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
-            border: Border.all(color: selected ? AppTheme.paper : AppTheme.graphite, width: selected ? 1.0 : 0.8),
+            border: Border.all(
+              color: locked ? AppTheme.graphite : (selected ? AppTheme.paper : AppTheme.graphite),
+              width: selected ? 1.0 : 0.8,
+            ),
             color: AppTheme.carbon,
           ),
           child: Row(
@@ -445,12 +490,14 @@ class _ToolRow extends StatelessWidget {
                 width: 18,
                 height: 18,
                 decoration: BoxDecoration(
-                  border: Border.all(color: selected ? AppTheme.redline : AppTheme.pen, width: 1),
-                  color: selected ? AppTheme.redline : Colors.transparent,
+                  border: Border.all(color: selected ? accent : AppTheme.pen, width: 1),
+                  color: selected ? accent : Colors.transparent,
                 ),
-                child: selected
-                    ? const Icon(CupertinoIcons.check_mark, size: 12, color: AppTheme.paper)
-                    : null,
+                child: locked
+                    ? const Icon(CupertinoIcons.lock_fill, size: 11, color: AppTheme.paper)
+                    : (selected
+                        ? const Icon(CupertinoIcons.check_mark, size: 12, color: AppTheme.paper)
+                        : null),
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -478,6 +525,10 @@ class _ToolRow extends StatelessWidget {
                             fontFamilyFallback: AppTheme.monoFallback,
                           ),
                         ),
+                        if (locked) ...[
+                          const SizedBox(width: 8),
+                          AppDecor.stamp('STD', border: AppTheme.amber, color: AppTheme.amber),
+                        ],
                       ],
                     ),
                     const SizedBox(height: 4),
@@ -491,6 +542,76 @@ class _ToolRow extends StatelessWidget {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _MoreLoadoutButton extends StatelessWidget {
+  const _MoreLoadoutButton({
+    required this.expanded,
+    required this.extraCount,
+    required this.onTap,
+  });
+  final bool expanded;
+  final int extraCount;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          border: Border.all(color: AppTheme.graphite, width: 0.8),
+          color: AppTheme.carbon,
+        ),
+        child: Row(
+          children: [
+            const Icon(CupertinoIcons.add_circled, color: AppTheme.pen, size: 16),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                extraCount == 0 ? '更多装备  ·  待接入' : '更多装备  ·  $extraCount 件可选',
+                style: const TextStyle(
+                  color: AppTheme.pen,
+                  fontSize: 12,
+                  letterSpacing: 2,
+                  fontFamilyFallback: AppTheme.monoFallback,
+                ),
+              ),
+            ),
+            Icon(expanded ? CupertinoIcons.chevron_up : CupertinoIcons.chevron_down,
+                color: AppTheme.muted, size: 12),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ComingSoonExtras extends StatelessWidget {
+  const _ComingSoonExtras();
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        border: Border.all(color: AppTheme.graphite, width: 0.8),
+        color: AppTheme.carbon,
+      ),
+      child: Row(
+        children: [
+          const Icon(CupertinoIcons.cloud_download, color: AppTheme.muted, size: 14),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              '扩展装备库即将上线（MCP host / 自定义工具 / Skill 注入）',
+              style: const TextStyle(color: AppTheme.muted, fontSize: 12, height: 1.5),
+            ),
+          ),
+        ],
       ),
     );
   }
