@@ -20,12 +20,36 @@ services:
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
       DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL:-}
       BOCHA_API_KEY: ${BOCHA_API_KEY:-}
+      RSSHUB_BASE_URL: ${RSSHUB_BASE_URL:-http://rsshub:1200}
       TZ: Asia/Shanghai
     volumes:
       - agentzero-data:/var/lib/agentzero
     networks:
       - agentzero-net
+    depends_on:
+      - rsshub
     # 不暴露宿主机端口：仅通过 Caddy 反代
+
+  rsshub:
+    # 自托管 RSSHub 实例，让我们能把微信公众号、知乎、Twitter、Bilibili
+    # 等没有原生 RSS 的源都"RSS 化"。
+    # 选 chromium-bundled 镜像以支持需要渲染的源（部分知乎/微博路由）。
+    image: diygod/rsshub:chromium-bundled
+    container_name: agentzero-rsshub
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      CACHE_TYPE: memory
+      CACHE_EXPIRE: "1800"          # 命中缓存 30 分钟
+      CACHE_CONTENT_EXPIRE: "1800"
+      LISTEN_INADDR_ANY: "1"
+      REQUEST_RETRY: "2"
+      REQUEST_TIMEOUT: "15000"
+      LOGGER_LEVEL: warn
+      TZ: Asia/Shanghai
+    networks:
+      - agentzero-net
+    # 仅在内部网络可访问，不暴露端口
 
   caddy:
     image: caddy:2.8-alpine

@@ -30,6 +30,9 @@ type Service struct {
 	extractor   *Extractor
 	pruner      *Pruner
 	recommender *Recommender
+	analyzer    *Analyzer
+
+	briefingInterval time.Duration
 
 	FetchInterval  time.Duration
 	PruneInterval  time.Duration
@@ -45,10 +48,14 @@ type Service struct {
 
 // Config 控制 Service 启动参数；零值用合理默认。
 type Config struct {
-	FetchInterval  time.Duration
-	PruneInterval  time.Duration
-	ExtractPerTick int
-	ExtractModel   string
+	FetchInterval     time.Duration
+	PruneInterval     time.Duration
+	BriefingInterval  time.Duration
+	ExtractPerTick    int
+	ExtractModel      string
+	AnalysisModel     string
+	RSSHubBase        string
+	BriefingsDir      string // HTML 简报存放目录
 }
 
 func NewService(database *sql.DB, llmClient *llm.Client, logger *slog.Logger, cfg Config) *Service {
@@ -68,11 +75,19 @@ func NewService(database *sql.DB, llmClient *llm.Client, logger *slog.Logger, cf
 		PruneInterval:  cfg.PruneInterval,
 		ExtractPerTick: cfg.ExtractPerTick,
 	}
-	s.fetcher = NewFetcher(database, logger)
+	if cfg.BriefingInterval <= 0 {
+		cfg.BriefingInterval = 60 * time.Minute
+	}
+	if cfg.AnalysisModel == "" {
+		cfg.AnalysisModel = cfg.ExtractModel
+	}
+	s.fetcher = NewFetcher(database, logger, cfg.RSSHubBase)
 	s.matcher = NewMatcher(database, logger)
 	s.extractor = NewExtractor(database, llmClient, logger, cfg.ExtractModel)
 	s.pruner = NewPruner(database, logger)
 	s.recommender = NewRecommender(database, llmClient, logger, cfg.ExtractModel)
+	s.analyzer = NewAnalyzer(database, llmClient, logger, cfg.AnalysisModel, cfg.BriefingsDir)
+	s.briefingInterval = cfg.BriefingInterval
 	return s
 }
 
@@ -112,7 +127,9 @@ func (s *Service) Stop() {
 
 func (s *Service) loop(ctx context.Context) {
 	s.logger.Info("feed service started",
-		"fetch_interval", s.FetchInterval, "prune_interval", s.PruneInterval)
+		"fetch_interval", s.FetchInterval,
+		"prune_interval", s.PruneInterval,
+		"briefing_interval", s.briefingInterval)
 
 	// 启动后第一次马上跑（仅抓 + 匹配，避免上来就大量调 LLM）
 	s.runFetchTick(ctx, false)
@@ -121,6 +138,8 @@ func (s *Service) loop(ctx context.Context) {
 	defer fetchTicker.Stop()
 	pruneTicker := time.NewTicker(s.PruneInterval)
 	defer pruneTicker.Stop()
+	briefingTicker := time.NewTicker(s.briefingInterval)
+	defer briefingTicker.Stop()
 
 	for {
 		select {
@@ -131,8 +150,41 @@ func (s *Service) loop(ctx context.Context) {
 			s.runFetchTick(ctx, true)
 		case <-pruneTicker.C:
 			s.runPruneTick(ctx)
+		case <-briefingTicker.C:
+			s.runBriefingTick(ctx)
 		}
 	}
+}
+
+// runBriefingTick 每小时跑一次：对每个有 topics 的用户生成一份 1h 简报。
+func (s *Service) runBriefingTick(ctx context.Context) {
+	userIDs, err := db.ListUsersWithTopics(ctx, s.db)
+	if err != nil {
+		s.logger.Warn("list users with topics failed", "err", err)
+		return
+	}
+	s.logger.Info("briefing cron starting", "users", len(userIDs))
+	for _, uid := range userIDs {
+		if ctx.Err() != nil {
+			return
+		}
+		b, err := s.analyzer.Generate(ctx, uid, "1h", nil)
+		if err != nil {
+			s.logger.Warn("briefing generate failed", "user", uid, "err", err)
+			continue
+		}
+		s.logger.Info("briefing generated", "user", uid, "id", b.ID, "title", b.Title)
+	}
+}
+
+// GenerateBriefingNow 给 API 用，跑一次同步的简报生成；onProgress 用来推 SSE 进度。
+func (s *Service) GenerateBriefingNow(
+	ctx context.Context,
+	userID int64,
+	window string,
+	onProgress func(AnalyzeProgress),
+) (*model.Briefing, error) {
+	return s.analyzer.Generate(ctx, userID, window, onProgress)
 }
 
 func (s *Service) runFetchTick(ctx context.Context, doExtract bool) {

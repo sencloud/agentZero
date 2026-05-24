@@ -92,12 +92,13 @@ CREATE INDEX IF NOT EXISTS idx_topics_user ON topics(user_id, created_at DESC);
 CREATE TABLE IF NOT EXISTS news_sources (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,
   name        TEXT NOT NULL,
-  url         TEXT NOT NULL UNIQUE,   -- RSS / feed URL
+  url         TEXT NOT NULL UNIQUE,   -- RSS / feed URL（rsshub_route 非空时 url 可仅作展示）
   kind        TEXT NOT NULL DEFAULT 'rss',
   region      TEXT NOT NULL DEFAULT 'cn',  -- cn / intl_zh / intl_en
   lang        TEXT NOT NULL DEFAULT 'zh',
   category    TEXT NOT NULL DEFAULT 'general',  -- tech/ai/finance/intl/sports/...
   description TEXT NOT NULL DEFAULT '',          -- 给 LLM 推荐用的 1-2 句简介
+  rsshub_route TEXT NOT NULL DEFAULT '',         -- 形如 /zhihu/hotlist，运行时拼 RSSHUB_BASE
   enabled     INTEGER NOT NULL DEFAULT 0,
   last_fetch_at TIMESTAMP,
   last_error  TEXT NOT NULL DEFAULT '',
@@ -164,6 +165,23 @@ CREATE TABLE IF NOT EXISTS feed_state (
   v         TEXT NOT NULL DEFAULT '',
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+
+-- ========================= AI 情报简报 (v0.3.0) =========================
+
+CREATE TABLE IF NOT EXISTS briefings (
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id         INTEGER NOT NULL REFERENCES users(id),
+  window          TEXT NOT NULL DEFAULT '1h',   -- 1h / 24h / 7d
+  title           TEXT NOT NULL DEFAULT '',
+  summary         TEXT NOT NULL DEFAULT '',     -- 一句话总结
+  html_path       TEXT NOT NULL DEFAULT '',     -- 文件系统下的 HTML 文件路径
+  model           TEXT NOT NULL DEFAULT '',
+  event_count     INTEGER NOT NULL DEFAULT 0,
+  cluster_count   INTEGER NOT NULL DEFAULT 0,
+  reasoning_json  TEXT NOT NULL DEFAULT '',     -- 完整的中间产物（cluster + insights）
+  generated_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_briefings_user_time ON briefings(user_id, generated_at DESC);
 `
 
 // 增量列：SQLite 不支持 ADD COLUMN IF NOT EXISTS，需要先 PRAGMA table_info 判一下。
@@ -177,6 +195,7 @@ var addColumns = []colDecl{
 	{"missions", "parent_id", "TEXT"},
 	{"news_sources", "category", "TEXT NOT NULL DEFAULT 'general'"},
 	{"news_sources", "description", "TEXT NOT NULL DEFAULT ''"},
+	{"news_sources", "rsshub_route", "TEXT NOT NULL DEFAULT ''"},
 }
 
 // Migrate 应用 schema。SQLite 的 CREATE IF NOT EXISTS 是幂等的，可以反复调用。

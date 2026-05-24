@@ -34,6 +34,7 @@ func NewRouter(d Deps) http.Handler {
 		registry: d.Registry,
 	}
 	f := &feedAPI{Handlers: h, svc: d.Feed}
+	br := &briefingAPI{Handlers: h, svc: d.Feed}
 
 	r := chi.NewRouter()
 	r.Use(chimw.Recoverer)
@@ -82,6 +83,11 @@ func NewRouter(d Deps) http.Handler {
 			r.Get("/feed/sources", f.listSources)
 			r.Post("/feed/sources/toggle", f.toggleSources)
 			r.Post("/feed/sources/recommend", f.recommendSources)
+
+			r.Get("/briefings", br.list)
+			r.Get("/briefings/{id}", br.detail)
+			r.Get("/briefings/{id}/html", br.html)
+			r.Get("/briefings/generate/stream", br.generateStream)
 		})
 	})
 

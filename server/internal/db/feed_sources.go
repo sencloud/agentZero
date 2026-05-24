@@ -16,16 +16,17 @@ func UpsertNewsSource(ctx context.Context, db *sql.DB, s *model.NewsSource) erro
 		enabled = 1
 	}
 	res, err := db.ExecContext(ctx, `
-		INSERT INTO news_sources (name, url, kind, region, lang, category, description, enabled)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO news_sources (name, url, kind, region, lang, category, description, rsshub_route, enabled)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(url) DO UPDATE SET
 		  name = excluded.name,
 		  kind = excluded.kind,
 		  region = excluded.region,
 		  lang = excluded.lang,
 		  category = excluded.category,
-		  description = excluded.description
-	`, s.Name, s.URL, s.Kind, s.Region, s.Lang, s.Category, s.Description, enabled)
+		  description = excluded.description,
+		  rsshub_route = excluded.rsshub_route
+	`, s.Name, s.URL, s.Kind, s.Region, s.Lang, s.Category, s.Description, s.RSSHubRoute, enabled)
 	if err != nil {
 		return err
 	}
@@ -55,7 +56,7 @@ func SetSourceEnabled(ctx context.Context, db *sql.DB, ids []int64, enabled bool
 
 // ListNewsSources 列出全部新闻源；onlyEnabled=true 时只返回 enabled=1 的。
 func ListNewsSources(ctx context.Context, db *sql.DB, onlyEnabled bool) ([]*model.NewsSource, error) {
-	q := `SELECT id, name, url, kind, region, lang, category, description, enabled, last_fetch_at, last_error, created_at FROM news_sources`
+	q := `SELECT id, name, url, kind, region, lang, category, description, rsshub_route, enabled, last_fetch_at, last_error, created_at FROM news_sources`
 	if onlyEnabled {
 		q += ` WHERE enabled = 1`
 	}
@@ -103,7 +104,7 @@ func scanNewsSource(rows *sql.Rows) (*model.NewsSource, error) {
 	var enabled int
 	var lastFetch sql.NullTime
 	if err := rows.Scan(&s.ID, &s.Name, &s.URL, &s.Kind, &s.Region, &s.Lang,
-		&s.Category, &s.Description, &enabled, &lastFetch, &s.LastError, &s.CreatedAt); err != nil {
+		&s.Category, &s.Description, &s.RSSHubRoute, &enabled, &lastFetch, &s.LastError, &s.CreatedAt); err != nil {
 		return nil, err
 	}
 	s.Enabled = enabled != 0

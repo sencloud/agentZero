@@ -210,6 +210,40 @@ class NewsSource {
       );
 }
 
+/// AI 情报简报元数据（列表项用，正文走 HTML 接口）
+class Briefing {
+  Briefing({
+    required this.id,
+    required this.window,
+    required this.title,
+    required this.summary,
+    required this.model,
+    required this.eventCount,
+    required this.clusterCount,
+    required this.generatedAt,
+  });
+
+  final int id;
+  final String window;
+  final String title;
+  final String summary;
+  final String model;
+  final int eventCount;
+  final int clusterCount;
+  final DateTime generatedAt;
+
+  factory Briefing.fromJson(Map<String, dynamic> j) => Briefing(
+        id: (j['id'] as num).toInt(),
+        window: (j['window'] as String?) ?? '1h',
+        title: (j['title'] as String?) ?? '',
+        summary: (j['summary'] as String?) ?? '',
+        model: (j['model'] as String?) ?? '',
+        eventCount: (j['event_count'] as num?)?.toInt() ?? 0,
+        clusterCount: (j['cluster_count'] as num?)?.toInt() ?? 0,
+        generatedAt: _parseTime(j['generated_at']) ?? DateTime.now(),
+      );
+}
+
 /// LLM 智能选源结果。
 class RecommendResult {
   RecommendResult({required this.newlyEnabled, required this.reason});

@@ -23,17 +23,33 @@ import (
 
 // Fetcher 负责拉 RSS 源、入库新事件、刷新 source 状态。
 type Fetcher struct {
-	db     *sql.DB
-	logger *slog.Logger
-	parser *gofeed.Parser
-	client *http.Client
+	db          *sql.DB
+	logger      *slog.Logger
+	parser      *gofeed.Parser
+	client      *http.Client
+	RSSHubBase  string // 形如 http://rsshub:1200；非空时 source.RSSHubRoute 会被拼到这里
 }
 
-func NewFetcher(database *sql.DB, logger *slog.Logger) *Fetcher {
+func NewFetcher(database *sql.DB, logger *slog.Logger, rsshubBase string) *Fetcher {
 	p := gofeed.NewParser()
-	c := &http.Client{Timeout: 20 * time.Second}
+	c := &http.Client{Timeout: 25 * time.Second}
 	p.Client = c
-	return &Fetcher{db: database, logger: logger, parser: p, client: c}
+	return &Fetcher{db: database, logger: logger, parser: p, client: c, RSSHubBase: rsshubBase}
+}
+
+// resolveURL 计算源真正要 GET 的 URL：
+//   - RSSHubRoute 非空 + RSSHubBase 非空 → 拼成 RSSHubBase + Route
+//   - 否则返回 source.URL
+func (f *Fetcher) resolveURL(s *model.NewsSource) string {
+	if s.RSSHubRoute != "" && f.RSSHubBase != "" {
+		base := strings.TrimRight(f.RSSHubBase, "/")
+		route := s.RSSHubRoute
+		if !strings.HasPrefix(route, "/") {
+			route = "/" + route
+		}
+		return base + route
+	}
+	return s.URL
 }
 
 // SourceResult 表示单个源的拉取结果，给 FetchAllWithProgress 的回调用。
@@ -82,7 +98,8 @@ func (f *Fetcher) FetchAllWithProgress(
 }
 
 func (f *Fetcher) fetchOne(ctx context.Context, s *model.NewsSource) (int, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.URL, nil)
+	targetURL := f.resolveURL(s)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, targetURL, nil)
 	if err != nil {
 		return 0, err
 	}

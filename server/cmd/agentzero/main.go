@@ -67,10 +67,14 @@ func main() {
 		logger.Warn("seed news sources failed", "err", err)
 	}
 	feedSvc := feed.NewService(store, llmClient, logger, feed.Config{
-		FetchInterval:  cfg.FeedFetchInterval,
-		PruneInterval:  cfg.FeedPruneInterval,
-		ExtractPerTick: cfg.FeedExtractPerTick,
-		ExtractModel:   cfg.FeedExtractModel,
+		FetchInterval:    cfg.FeedFetchInterval,
+		PruneInterval:    cfg.FeedPruneInterval,
+		BriefingInterval: cfg.FeedBriefingInterval,
+		ExtractPerTick:   cfg.FeedExtractPerTick,
+		ExtractModel:     cfg.FeedExtractModel,
+		AnalysisModel:    cfg.FeedAnalysisModel,
+		RSSHubBase:       cfg.RSSHubBase,
+		BriefingsDir:     cfg.BriefingsDir,
 	})
 	feedSvc.Start(context.Background())
 	defer feedSvc.Stop()
@@ -113,34 +117,42 @@ func main() {
 }
 
 type config struct {
-	Port               string
-	DBPath             string
-	WorkspaceRoot      string
-	JWTSecret          string
-	AppleBundleID      string
-	DeepseekAPIKey     string
-	DeepseekBaseURL    string
-	BochaAPIKey        string
-	FeedFetchInterval  time.Duration
-	FeedPruneInterval  time.Duration
-	FeedExtractPerTick int
-	FeedExtractModel   string
+	Port                 string
+	DBPath               string
+	WorkspaceRoot        string
+	JWTSecret            string
+	AppleBundleID        string
+	DeepseekAPIKey       string
+	DeepseekBaseURL      string
+	BochaAPIKey          string
+	FeedFetchInterval    time.Duration
+	FeedPruneInterval    time.Duration
+	FeedBriefingInterval time.Duration
+	FeedExtractPerTick   int
+	FeedExtractModel     string
+	FeedAnalysisModel    string
+	RSSHubBase           string
+	BriefingsDir         string
 }
 
 func loadConfig() config {
 	c := config{
-		Port:               envOr("PORT", "8080"),
-		DBPath:             envOr("DB_PATH", "/var/lib/agentzero/agentzero.db"),
-		WorkspaceRoot:      envOr("WORKSPACE_ROOT", "/var/lib/agentzero/workspaces"),
-		JWTSecret:          envOr("JWT_SECRET", ""),
-		AppleBundleID:      envOr("APPLE_BUNDLE_ID", "com.agentzero.me"),
-		DeepseekAPIKey:     envOr("DEEPSEEK_API_KEY", ""),
-		DeepseekBaseURL:    envOr("DEEPSEEK_BASE_URL", ""),
-		BochaAPIKey:        envOr("BOCHA_API_KEY", ""),
-		FeedFetchInterval:  envDuration("FEED_FETCH_INTERVAL", 30*time.Minute),
-		FeedPruneInterval:  envDuration("FEED_PRUNE_INTERVAL", 6*time.Hour),
-		FeedExtractPerTick: envInt("FEED_EXTRACT_PER_TICK", 8),
-		FeedExtractModel:   envOr("FEED_EXTRACT_MODEL", llm.ModelV4Flash),
+		Port:                 envOr("PORT", "8080"),
+		DBPath:               envOr("DB_PATH", "/var/lib/agentzero/agentzero.db"),
+		WorkspaceRoot:        envOr("WORKSPACE_ROOT", "/var/lib/agentzero/workspaces"),
+		JWTSecret:            envOr("JWT_SECRET", ""),
+		AppleBundleID:        envOr("APPLE_BUNDLE_ID", "com.agentzero.me"),
+		DeepseekAPIKey:       envOr("DEEPSEEK_API_KEY", ""),
+		DeepseekBaseURL:      envOr("DEEPSEEK_BASE_URL", ""),
+		BochaAPIKey:          envOr("BOCHA_API_KEY", ""),
+		FeedFetchInterval:    envDuration("FEED_FETCH_INTERVAL", 30*time.Minute),
+		FeedPruneInterval:    envDuration("FEED_PRUNE_INTERVAL", 6*time.Hour),
+		FeedBriefingInterval: envDuration("FEED_BRIEFING_INTERVAL", 60*time.Minute),
+		FeedExtractPerTick:   envInt("FEED_EXTRACT_PER_TICK", 8),
+		FeedExtractModel:     envOr("FEED_EXTRACT_MODEL", llm.ModelV4Flash),
+		FeedAnalysisModel:    envOr("FEED_ANALYSIS_MODEL", llm.ModelV4Flash),
+		RSSHubBase:           envOr("RSSHUB_BASE_URL", ""),
+		BriefingsDir:         envOr("BRIEFINGS_DIR", "/var/lib/agentzero/briefings"),
 	}
 	if c.JWTSecret == "" {
 		slog.Error("JWT_SECRET environment variable is required")

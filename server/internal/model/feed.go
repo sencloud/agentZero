@@ -22,6 +22,7 @@ type NewsSource struct {
 	Lang        string     `json:"lang"`   // zh / en
 	Category    string     `json:"category"`    // tech / ai / finance / intl / sports / culture / dev …
 	Description string     `json:"description"` // 1-2 句源简介，给 LLM 推荐用
+	RSSHubRoute string     `json:"rsshub_route,omitempty"` // 非空则用 RSSHub 拼真实 URL
 	Enabled     bool       `json:"enabled"`
 	LastFetchAt *time.Time `json:"last_fetch_at,omitempty"`
 	LastError   string     `json:"last_error,omitempty"`
@@ -77,6 +78,25 @@ type UserEventSub struct {
 	Relevance     float64   `json:"relevance"`
 	MatchedTopics []int64   `json:"matched_topics"`
 	CreatedAt     time.Time `json:"created_at"`
+}
+
+// Briefing 是一份 AI 生成的情报简报。
+//
+// Window 决定分析的时间窗口（"1h" / "24h" / "7d"）。
+// HTMLPath 指向落盘的 HTML 文件，给客户端做富媒体阅读。
+// ReasoningJSON 保留 LLM 的中间产物（cluster + insights），方便后续审计 / 二次加工。
+type Briefing struct {
+	ID            int64     `json:"id"`
+	UserID        int64     `json:"user_id"`
+	Window        string    `json:"window"`
+	Title         string    `json:"title"`
+	Summary       string    `json:"summary"`
+	HTMLPath      string    `json:"html_path,omitempty"`
+	Model         string    `json:"model"`
+	EventCount    int       `json:"event_count"`
+	ClusterCount  int       `json:"cluster_count"`
+	ReasoningJSON string    `json:"-"`
+	GeneratedAt   time.Time `json:"generated_at"`
 }
 
 // FeedStatus 是事件流 worker 的运行态快照。

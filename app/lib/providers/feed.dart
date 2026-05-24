@@ -1,3 +1,4 @@
+import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/api_client.dart';
@@ -44,6 +45,24 @@ final feedGraphProvider = FutureProvider.autoDispose<FeedGraph>((ref) async {
   final dio = ref.watch(apiClientProvider).dio;
   final res = await dio.get('/feed/graph', queryParameters: {'limit': 80});
   return FeedGraph.fromJson(Map<String, dynamic>.from(res.data));
+});
+
+/// 简报列表（按时间倒序）
+final briefingsListProvider = FutureProvider.autoDispose<List<Briefing>>((ref) async {
+  final dio = ref.watch(apiClientProvider).dio;
+  final res = await dio.get('/briefings', queryParameters: {'limit': 30});
+  final list = (res.data['briefings'] as List?) ?? const [];
+  return list.map((e) => Briefing.fromJson(Map<String, dynamic>.from(e))).toList();
+});
+
+/// 取单份简报的 HTML 原文，用 WebView 渲染。
+final briefingHtmlProvider = FutureProvider.autoDispose.family<String, int>((ref, id) async {
+  final dio = ref.watch(apiClientProvider).dio;
+  final res = await dio.get(
+    '/briefings/$id/html',
+    options: Options(responseType: ResponseType.plain),
+  );
+  return res.data as String;
 });
 
 final feedSourcesProvider = FutureProvider.autoDispose<List<NewsSource>>((ref) async {

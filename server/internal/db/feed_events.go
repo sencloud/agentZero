@@ -63,7 +63,7 @@ func ListUserFeedEvents(ctx context.Context, db *sql.DB, userID int64, limit int
 	rows, err := db.QueryContext(ctx, `
 		SELECT e.id, e.source_id, e.url, e.title, e.summary, e.content, e.lang,
 		       e.published_at, e.fetched_at, e.extracted,
-		       s.id, s.name, s.url, s.kind, s.region, s.lang, s.category, s.description,
+		       s.id, s.name, s.url, s.kind, s.region, s.lang, s.category, s.description, s.rsshub_route,
 		       s.enabled, s.last_fetch_at, s.last_error, s.created_at,
 		       u.relevance, u.matched_topics
 		FROM user_event_subs u
@@ -91,7 +91,7 @@ func ListUserFeedEvents(ctx context.Context, db *sql.DB, userID int64, limit int
 		)
 		if err := rows.Scan(&e.ID, &e.SourceID, &e.URL, &e.Title, &e.Summary, &e.Content, &e.Lang,
 			&published, &e.FetchedAt, &extracted,
-			&s.ID, &s.Name, &s.URL, &s.Kind, &s.Region, &s.Lang, &s.Category, &s.Description,
+			&s.ID, &s.Name, &s.URL, &s.Kind, &s.Region, &s.Lang, &s.Category, &s.Description, &s.RSSHubRoute,
 			&enabled, &lastFetch, &s.LastError, &s.CreatedAt,
 			&rel, &matched); err != nil {
 			return nil, err

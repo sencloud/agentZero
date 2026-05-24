@@ -7,24 +7,38 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../core/theme.dart';
 import '../../models/feed.dart';
 import '../../providers/feed.dart';
+import 'briefings_tab.dart';
 import 'feed_graph_canvas.dart';
 import 'feed_refresh_stream.dart';
 
-/// 事件流页：话题 chips + 实体图谱画布 + 命中事件 timeline。
-///
-/// 顶部状态条提示用户当前的 worker 状态、24h 入库事件数、节点/关系总数。
-class FeedPage extends ConsumerWidget {
+/// 事件流页面：两个 tab
+///   - 简报（主）：AI 写的人话情报简报
+///   - 图谱（辅）：实体关系网 + 话题 chips + 命中事件 timeline
+class FeedPage extends ConsumerStatefulWidget {
   const FeedPage({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final status = ref.watch(feedStatusProvider).value;
-    final topics = ref.watch(topicsProvider);
-    final events = ref.watch(feedEventsProvider);
-    final graph = ref.watch(feedGraphProvider);
-    final actions = ref.read(feedActionsProvider);
-    final refreshing = ref.watch(feedRefreshProvider).running;
+  ConsumerState<FeedPage> createState() => _FeedPageState();
+}
 
+class _FeedPageState extends ConsumerState<FeedPage> with SingleTickerProviderStateMixin {
+  late final TabController _tabController;
+
+  @override
+  void initState() {
+    super.initState();
+    _tabController = TabController(length: 2, vsync: this);
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final refreshing = ref.watch(feedRefreshProvider).running;
     return Scaffold(
       appBar: AppBar(
         leading: IconButton(
@@ -59,61 +73,104 @@ class FeedPage extends ConsumerWidget {
                 : () => ref.read(feedRefreshProvider.notifier).start(),
           ),
         ],
+        bottom: TabBar(
+          controller: _tabController,
+          indicatorColor: AppTheme.redline,
+          indicatorWeight: 2,
+          labelColor: AppTheme.paper,
+          unselectedLabelColor: AppTheme.muted,
+          labelStyle: const TextStyle(fontSize: 12, letterSpacing: 4, fontWeight: FontWeight.w700),
+          tabs: const [
+            Tab(text: '简报'),
+            Tab(text: '图谱'),
+          ],
+        ),
       ),
       body: SafeArea(
         top: false,
-        child: Column(
-          children: [
-            _StatusBar(status: status),
-            const FeedRefreshPanel(),
-            _TopicsBar(
-              topicsAsync: topics,
-              onAdd: () => _showAddTopic(context, actions),
-              onDelete: (id) async {
-                await actions.deleteTopic(id);
-              },
-            ),
-            Expanded(
-              child: graph.when(
-                loading: () => const Center(
-                  child: SizedBox(
-                    width: 22,
-                    height: 22,
-                    child: CircularProgressIndicator(strokeWidth: 2, color: AppTheme.paper),
-                  ),
-                ),
-                error: (e, _) => Center(
-                  child: Text('图谱加载失败：$e',
-                      style: const TextStyle(color: AppTheme.redline, fontSize: 12)),
-                ),
-                data: (g) => FeedGraphCanvas(graph: g),
-              ),
-            ),
-            const Divider(color: AppTheme.graphite, height: 1),
-            SizedBox(
-              height: 220,
-              child: events.when(
-                loading: () => const Center(
-                  child: SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2, color: AppTheme.paper),
-                  ),
-                ),
-                error: (e, _) => Center(
-                  child: Text('事件列表加载失败：$e',
-                      style: const TextStyle(color: AppTheme.redline, fontSize: 12)),
-                ),
-                data: (list) => _EventList(events: list),
-              ),
-            ),
+        child: TabBarView(
+          controller: _tabController,
+          children: const [
+            BriefingsTab(),
+            _GraphTab(),
           ],
         ),
       ),
     );
   }
 
-  Future<void> _showAddTopic(BuildContext context, FeedActions actions) async {
+  Future<void> _showSourcesSheet(BuildContext context) async {
+    await showModalBottomSheet(
+      context: context,
+      backgroundColor: AppTheme.ink,
+      isScrollControlled: true,
+      builder: (_) => const _SourcesSheet(),
+    );
+  }
+}
+
+/// 图谱 tab：原 FeedPage 的全部图谱视图集中在这里。
+class _GraphTab extends ConsumerWidget {
+  const _GraphTab();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final status = ref.watch(feedStatusProvider).value;
+    final topics = ref.watch(topicsProvider);
+    final events = ref.watch(feedEventsProvider);
+    final graph = ref.watch(feedGraphProvider);
+    final actions = ref.read(feedActionsProvider);
+
+    return Column(
+      children: [
+        _StatusBar(status: status),
+        const FeedRefreshPanel(),
+        _TopicsBar(
+          topicsAsync: topics,
+          onAdd: () => _showAddTopic(context, ref, actions),
+          onDelete: (id) async {
+            await actions.deleteTopic(id);
+          },
+        ),
+        Expanded(
+          child: graph.when(
+            loading: () => const Center(
+              child: SizedBox(
+                width: 22,
+                height: 22,
+                child: CircularProgressIndicator(strokeWidth: 2, color: AppTheme.paper),
+              ),
+            ),
+            error: (e, _) => Center(
+              child: Text('图谱加载失败：$e',
+                  style: const TextStyle(color: AppTheme.redline, fontSize: 12)),
+            ),
+            data: (g) => FeedGraphCanvas(graph: g),
+          ),
+        ),
+        const Divider(color: AppTheme.graphite, height: 1),
+        SizedBox(
+          height: 220,
+          child: events.when(
+            loading: () => const Center(
+              child: SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(strokeWidth: 2, color: AppTheme.paper),
+              ),
+            ),
+            error: (e, _) => Center(
+              child: Text('事件列表加载失败：$e',
+                  style: const TextStyle(color: AppTheme.redline, fontSize: 12)),
+            ),
+            data: (list) => _EventList(events: list),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _showAddTopic(BuildContext context, WidgetRef ref, FeedActions actions) async {
     final ctrl = TextEditingController();
     final added = await showModalBottomSheet<String>(
       context: context,
@@ -211,15 +268,6 @@ class FeedPage extends ConsumerWidget {
     } catch (_) {
       // 静默：推荐失败不打断用户
     }
-  }
-
-  Future<void> _showSourcesSheet(BuildContext context) async {
-    await showModalBottomSheet(
-      context: context,
-      backgroundColor: AppTheme.ink,
-      isScrollControlled: true,
-      builder: (_) => const _SourcesSheet(),
-    );
   }
 }
 
