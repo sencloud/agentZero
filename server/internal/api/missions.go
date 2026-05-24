@@ -152,6 +152,113 @@ func (m *missionAPI) deleteMission(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
+// ---- POST /missions/:id/follow_up ----
+//
+// 在某个已完成 mission 的基础上「继续安排」一份新任务。
+// 新 mission 进入同一卷宗（series），series_seq 自增；并把上一行动的简报
+// 与报告.html 作为上下文注入新一轮 LLM 调用（由 runner 在 ParentID 不空时处理）。
+
+type followUpReq struct {
+	Brief    string   `json:"brief"`
+	Codename string   `json:"codename"`
+	Tier     string   `json:"tier"`    // 可选，留空沿用 parent
+	Loadout  []string `json:"loadout"` // 可选，留空沿用 parent
+}
+
+func (m *missionAPI) followUp(w http.ResponseWriter, r *http.Request) {
+	uid, _ := userIDFrom(r)
+	parentID := chi.URLParam(r, "id")
+	parent, err := db.GetMission(r.Context(), m.db, parentID, uid)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "mission_not_found")
+		return
+	}
+	if !isTerminal(parent.Status) {
+		writeError(w, http.StatusBadRequest, "parent_not_finished")
+		return
+	}
+	var req followUpReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_request")
+		return
+	}
+	req.Brief = strings.TrimSpace(req.Brief)
+	req.Codename = strings.TrimSpace(req.Codename)
+	if req.Brief == "" {
+		writeError(w, http.StatusBadRequest, "brief_required")
+		return
+	}
+	if req.Codename == "" {
+		req.Codename = parent.Codename + " · 续"
+	}
+	tier := normalizeTier(req.Tier)
+	if req.Tier == "" {
+		tier = parent.Tier
+	}
+	var loadout []string
+	if len(req.Loadout) > 0 {
+		loadout = m.sanitizeLoadout(req.Loadout)
+	} else {
+		loadout = append(loadout, parent.Loadout...)
+	}
+	if len(loadout) == 0 {
+		writeError(w, http.StatusBadRequest, "loadout_required")
+		return
+	}
+
+	nextSeq, err := db.NextSeriesSeq(r.Context(), m.db, parent.SeriesID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "db_error")
+		return
+	}
+
+	missionID := uuid.NewString()
+	parentRef := parent.ID
+	mission := &model.Mission{
+		ID:           missionID,
+		UserID:       uid,
+		Codename:     req.Codename,
+		Brief:        req.Brief,
+		Tier:         tier,
+		Status:       model.StatusPending,
+		Loadout:      loadout,
+		WorkspaceDir: m.runner.MissionWorkspace(missionID),
+		SeriesID:     parent.SeriesID,
+		SeriesSeq:    nextSeq,
+		ParentID:     &parentRef,
+		CreatedAt:    time.Now().UTC(),
+	}
+	if err := db.CreateMission(r.Context(), m.db, mission); err != nil {
+		m.logger.Error("create follow-up failed", "err", err)
+		writeError(w, http.StatusInternalServerError, "db_error")
+		return
+	}
+	if err := m.runner.Start(mission); err != nil {
+		m.logger.Error("start follow-up failed", "err", err)
+		writeError(w, http.StatusInternalServerError, "start_failed")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"mission": mission})
+}
+
+// ---- GET /missions/:id/series ----
+// 取该 mission 所在卷宗下的全部 mission（含自己），按序号升序。
+func (m *missionAPI) series(w http.ResponseWriter, r *http.Request) {
+	uid, _ := userIDFrom(r)
+	id := chi.URLParam(r, "id")
+	mi, err := db.GetMission(r.Context(), m.db, id, uid)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "mission_not_found")
+		return
+	}
+	items, err := db.ListMissionsBySeries(r.Context(), m.db, mi.SeriesID, uid)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "db_error")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": items, "series_id": mi.SeriesID})
+}
+
 // ---- POST /missions/:id/abort ----
 
 func (m *missionAPI) abort(w http.ResponseWriter, r *http.Request) {

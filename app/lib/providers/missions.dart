@@ -159,3 +159,109 @@ Future<ArtifactContent> fetchArtifactContent(Ref ref, String missionId, int arti
 AsyncValue<ArtifactContent> watchArtifactContent(WidgetRef ref, String missionId, int artifactId) {
   return ref.watch(artifactContentProvider(_ArtifactKey(missionId, artifactId)));
 }
+
+// ============== 点评 / Skill / 卷宗 / 继续安排 ==============
+
+/// 拉一个 mission 的当前点评（无评则 null）。
+final missionReviewProvider =
+    FutureProvider.autoDispose.family<MissionReview?, String>((ref, missionId) async {
+  final api = ref.watch(apiClientProvider);
+  final r = await api.dio.get<Map<String, dynamic>>('/missions/$missionId/review');
+  final v = r.data?['review'];
+  if (v == null) return null;
+  return MissionReview.fromJson(v as Map<String, dynamic>);
+});
+
+/// 提交/更新一次点评。
+class SubmitReviewAction {
+  SubmitReviewAction(this.ref);
+  final Ref ref;
+  Future<MissionReview> call({
+    required String missionId,
+    required int rating,
+    required String comment,
+  }) async {
+    final api = ref.read(apiClientProvider);
+    final r = await api.dio.post<Map<String, dynamic>>(
+      '/missions/$missionId/review',
+      data: {'rating': rating, 'comment': comment},
+    );
+    final rv = MissionReview.fromJson(r.data!['review'] as Map<String, dynamic>);
+    ref.invalidate(missionReviewProvider(missionId));
+    return rv;
+  }
+}
+
+final submitReviewProvider = Provider<SubmitReviewAction>((ref) => SubmitReviewAction(ref));
+
+/// 列出用户沉淀的 Skill。
+final skillsListProvider = FutureProvider.autoDispose<List<Skill>>((ref) async {
+  final api = ref.watch(apiClientProvider);
+  final r = await api.dio.get<Map<String, dynamic>>('/skills');
+  final items = (r.data?['items'] as List?) ?? const [];
+  return items.map((e) => Skill.fromJson(e as Map<String, dynamic>)).toList();
+});
+
+/// 新建一项 Skill。
+class CreateSkillAction {
+  CreateSkillAction(this.ref);
+  final Ref ref;
+  Future<Skill> call({
+    required String name,
+    required String description,
+    required String triggerHint,
+    required String promptTemplate,
+    String? sourceMissionId,
+  }) async {
+    final api = ref.read(apiClientProvider);
+    final r = await api.dio.post<Map<String, dynamic>>('/skills', data: {
+      'name': name,
+      'description': description,
+      'trigger_hint': triggerHint,
+      'prompt_template': promptTemplate,
+      'source_mission_id': ?sourceMissionId,
+    });
+    ref.invalidate(skillsListProvider);
+    return Skill.fromJson(r.data!['skill'] as Map<String, dynamic>);
+  }
+}
+
+final createSkillProvider = Provider<CreateSkillAction>((ref) => CreateSkillAction(ref));
+
+/// 拉同卷宗下的全部 mission。
+final missionSeriesProvider =
+    FutureProvider.autoDispose.family<List<Mission>, String>((ref, missionId) async {
+  final api = ref.watch(apiClientProvider);
+  final r = await api.dio.get<Map<String, dynamic>>('/missions/$missionId/series');
+  final items = (r.data?['items'] as List?) ?? const [];
+  return items.map((e) => Mission.fromJson(e as Map<String, dynamic>)).toList();
+});
+
+/// 「继续安排」：在指定 mission 后面追派一份新任务。
+class FollowUpMissionAction {
+  FollowUpMissionAction(this.ref);
+  final Ref ref;
+  Future<Mission> call({
+    required String parentId,
+    required String codename,
+    required String brief,
+    MissionTier? tier,
+    List<String>? loadout,
+  }) async {
+    final api = ref.read(apiClientProvider);
+    final r = await api.dio.post<Map<String, dynamic>>(
+      '/missions/$parentId/follow_up',
+      data: {
+        'codename': codename,
+        'brief': brief,
+        'tier': ?tier?.wire,
+        'loadout': ?loadout,
+      },
+    );
+    final m = Mission.fromJson(r.data!['mission'] as Map<String, dynamic>);
+    ref.invalidate(missionsListProvider);
+    return m;
+  }
+}
+
+final followUpMissionProvider = Provider<FollowUpMissionAction>((ref) => FollowUpMissionAction(ref));

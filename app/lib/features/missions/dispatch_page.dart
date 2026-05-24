@@ -11,15 +11,13 @@ import '../../providers/missions.dart';
 
 /// 派遣页（M3c）。
 ///
-/// 用户在这里写下：
-///   - 行动代号（可随机）
-///   - 任务简报（必填，自由文本）
-///   - 档位（三选一，单选）
-///   - 携带装备（从 /tools 拉，至少勾一个）
-///
-/// 提交后调用 POST /missions，成功跳转到行动现场。
+/// 两种模式：
+///   - 散单派遣（默认）：从零给代号零派一项任务
+///   - 继续安排（parentId 不空）：在某次完成的 mission 后追派一份续作，
+///     新任务会与父任务进入同一行动卷宗（series）
 class DispatchPage extends ConsumerStatefulWidget {
-  const DispatchPage({super.key});
+  const DispatchPage({super.key, this.parentId});
+  final String? parentId;
   @override
   ConsumerState<DispatchPage> createState() => _DispatchPageState();
 }
@@ -33,6 +31,10 @@ class _DispatchPageState extends ConsumerState<DispatchPage> {
   bool _submitting = false;
   String? _error;
 
+  /// 续作模式下父任务的快照（拉到后预填代号、装备等）。
+  Mission? _parent;
+  bool _loadingParent = false;
+
   // 代号池：派遣页可随机抽。具备特工感的两字 / 三字短代号。
   static const _codenames = <String>[
     '北极星', '猎户', '苍鹰', '破晓', '夜枭', '潮汐', '孤鸢', '白蚁',
@@ -44,6 +46,32 @@ class _DispatchPageState extends ConsumerState<DispatchPage> {
   void initState() {
     super.initState();
     _codenameCtrl.text = _codenames[Random().nextInt(_codenames.length)];
+    if (widget.parentId != null) {
+      _loadParent();
+    }
+  }
+
+  Future<void> _loadParent() async {
+    setState(() => _loadingParent = true);
+    try {
+      final detail = await ref.read(missionDetailProvider(widget.parentId!).future);
+      if (!mounted) return;
+      setState(() {
+        _parent = detail.mission;
+        _codenameCtrl.text = '${detail.mission.codename} · 续';
+        _tier = detail.mission.tier;
+        _selectedTools
+          ..clear()
+          ..addAll(detail.mission.loadout);
+        _loadingParent = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _loadingParent = false;
+        _error = '父任务加载失败：$e';
+      });
+    }
   }
 
   @override
@@ -75,12 +103,23 @@ class _DispatchPageState extends ConsumerState<DispatchPage> {
       _error = null;
     });
     try {
-      final mission = await ref.read(dispatchMissionProvider).call(
-            codename: codename.isEmpty ? '未命名行动' : codename,
-            brief: brief,
-            tier: _tier,
-            loadout: _selectedTools.toList(),
-          );
+      final Mission mission;
+      if (widget.parentId != null) {
+        mission = await ref.read(followUpMissionProvider).call(
+              parentId: widget.parentId!,
+              codename: codename.isEmpty ? '续 · 未命名' : codename,
+              brief: brief,
+              tier: _tier,
+              loadout: _selectedTools.toList(),
+            );
+      } else {
+        mission = await ref.read(dispatchMissionProvider).call(
+              codename: codename.isEmpty ? '未命名行动' : codename,
+              brief: brief,
+              tier: _tier,
+              loadout: _selectedTools.toList(),
+            );
+      }
       if (mounted) {
         context.go('/missions/${mission.id}');
       }
@@ -107,9 +146,10 @@ class _DispatchPageState extends ConsumerState<DispatchPage> {
   Widget build(BuildContext context) {
     final toolsAsync = ref.watch(toolsProvider);
 
+    final isFollowUp = widget.parentId != null;
     return Scaffold(
       appBar: AppBar(
-        title: const Text('派遣行动'),
+        title: Text(isFollowUp ? '继续安排' : '派遣行动'),
         leading: IconButton(
           icon: const Icon(CupertinoIcons.xmark),
           onPressed: () => context.pop(),
@@ -118,6 +158,7 @@ class _DispatchPageState extends ConsumerState<DispatchPage> {
       body: SafeArea(
         child: Column(
           children: [
+            if (isFollowUp) _FollowUpBanner(parent: _parent, loading: _loadingParent),
             Expanded(
               child: ListView(
                 padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
@@ -329,6 +370,52 @@ class _TierTile extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _FollowUpBanner extends StatelessWidget {
+  const _FollowUpBanner({required this.parent, required this.loading});
+  final Mission? parent;
+  final bool loading;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.fromLTRB(20, 14, 20, 0),
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+      decoration: BoxDecoration(
+        border: Border.all(color: AppTheme.amber, width: 1),
+        color: AppTheme.carbon,
+      ),
+      child: Row(
+        children: [
+          AppDecor.stamp('FOLLOW UP', border: AppTheme.amber, color: AppTheme.amber),
+          const SizedBox(width: 10),
+          Expanded(
+            child: loading
+                ? const Text('正在调阅上次行动档案…',
+                    style: TextStyle(color: AppTheme.pen, fontSize: 12))
+                : parent == null
+                    ? const Text('档案未读到（仍可派遣，但不会注入上下文）',
+                        style: TextStyle(color: AppTheme.pen, fontSize: 12))
+                    : Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('接续上次行动：${parent!.codename}',
+                              style: const TextStyle(
+                                  color: AppTheme.paper,
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w700,
+                                  letterSpacing: 2)),
+                          const SizedBox(height: 2),
+                          Text('代号零会读上次的简报和报告，再开新一卷',
+                              style: const TextStyle(color: AppTheme.muted, fontSize: 11)),
+                        ],
+                      ),
+          ),
+        ],
       ),
     );
   }

@@ -12,6 +12,8 @@ import (
 )
 
 // CreateMission 在派遣任务时落库。状态默认为 pending，由 agent loop 推进。
+// SeriesID 留空时默认设为自身 ID，SeriesSeq 留 0 时默认设为 1，
+// 这样不走「继续安排」的散单任务也是一组合法的卷宗（只是只有一卷）。
 func CreateMission(ctx context.Context, db *sql.DB, m *model.Mission) error {
 	if m.ID == "" {
 		return fmt.Errorf("mission id required")
@@ -26,20 +28,30 @@ func CreateMission(ctx context.Context, db *sql.DB, m *model.Mission) error {
 	if m.CreatedAt.IsZero() {
 		m.CreatedAt = time.Now().UTC()
 	}
+	if m.SeriesID == "" {
+		m.SeriesID = m.ID
+	}
+	if m.SeriesSeq <= 0 {
+		m.SeriesSeq = 1
+	}
 	_, err = db.ExecContext(ctx, `
-		INSERT INTO missions (id, user_id, codename, brief, tier, status, loadout_json, workspace_dir, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, m.ID, m.UserID, m.Codename, m.Brief, string(m.Tier), string(m.Status), string(loadout), m.WorkspaceDir, m.CreatedAt)
+		INSERT INTO missions (id, user_id, codename, brief, tier, status, loadout_json, workspace_dir,
+		                     series_id, series_seq, parent_id, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, m.ID, m.UserID, m.Codename, m.Brief, string(m.Tier), string(m.Status), string(loadout), m.WorkspaceDir,
+		m.SeriesID, m.SeriesSeq, m.ParentID, m.CreatedAt)
 	return err
 }
 
+const missionSelect = `
+	SELECT id, user_id, codename, brief, tier, status, loadout_json, workspace_dir,
+	       input_tokens, output_tokens, series_id, series_seq, parent_id,
+	       started_at, ended_at, created_at
+	FROM missions`
+
 // GetMission 取一个属于该 user 的 mission。跨用户访问会返回 ErrNotFound。
 func GetMission(ctx context.Context, db *sql.DB, missionID string, userID int64) (*model.Mission, error) {
-	row := db.QueryRowContext(ctx, `
-		SELECT id, user_id, codename, brief, tier, status, loadout_json, workspace_dir,
-		       input_tokens, output_tokens, started_at, ended_at, created_at
-		FROM missions WHERE id = ? AND user_id = ?
-	`, missionID, userID)
+	row := db.QueryRowContext(ctx, missionSelect+` WHERE id = ? AND user_id = ?`, missionID, userID)
 	m, err := scanMission(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
@@ -52,14 +64,10 @@ func ListMissions(ctx context.Context, db *sql.DB, userID int64, limit, offset i
 	if limit <= 0 || limit > 100 {
 		limit = 30
 	}
-	rows, err := db.QueryContext(ctx, `
-		SELECT id, user_id, codename, brief, tier, status, loadout_json, workspace_dir,
-		       input_tokens, output_tokens, started_at, ended_at, created_at
-		FROM missions
+	rows, err := db.QueryContext(ctx, missionSelect+`
 		WHERE user_id = ?
 		ORDER BY created_at DESC
-		LIMIT ? OFFSET ?
-	`, userID, limit, offset)
+		LIMIT ? OFFSET ?`, userID, limit, offset)
 	if err != nil {
 		return nil, err
 	}
@@ -73,6 +81,38 @@ func ListMissions(ctx context.Context, db *sql.DB, userID int64, limit, offset i
 		out = append(out, m)
 	}
 	return out, rows.Err()
+}
+
+// ListMissionsBySeries 取同一卷宗下的全部 mission（含跨用户校验）。
+// 按 series_seq 升序，用于「行动卷宗」视图。
+func ListMissionsBySeries(ctx context.Context, db *sql.DB, seriesID string, userID int64) ([]*model.Mission, error) {
+	rows, err := db.QueryContext(ctx, missionSelect+`
+		WHERE series_id = ? AND user_id = ?
+		ORDER BY series_seq ASC, created_at ASC`, seriesID, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*model.Mission
+	for rows.Next() {
+		m, err := scanMissionRows(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, m)
+	}
+	return out, rows.Err()
+}
+
+// NextSeriesSeq 算下一个 series_seq（同一 series_id 内）。
+func NextSeriesSeq(ctx context.Context, db *sql.DB, seriesID string) (int, error) {
+	var maxSeq int
+	if err := db.QueryRowContext(ctx,
+		`SELECT COALESCE(MAX(series_seq), 0) FROM missions WHERE series_id = ?`,
+		seriesID).Scan(&maxSeq); err != nil {
+		return 0, err
+	}
+	return maxSeq + 1, nil
 }
 
 // DeleteMission 物理删除一个任务及其相关 steps / artifacts。
@@ -283,14 +323,20 @@ func scanMissionRow(s missionScanner) (*model.Mission, error) {
 	var m model.Mission
 	var loadoutJSON string
 	var tier, status string
+	var parentID sql.NullString
 	var startedAt, endedAt sql.NullTime
 	if err := s.Scan(&m.ID, &m.UserID, &m.Codename, &m.Brief, &tier, &status,
 		&loadoutJSON, &m.WorkspaceDir, &m.InputTokens, &m.OutputTokens,
+		&m.SeriesID, &m.SeriesSeq, &parentID,
 		&startedAt, &endedAt, &m.CreatedAt); err != nil {
 		return nil, err
 	}
 	m.Tier = model.MissionTier(tier)
 	m.Status = model.MissionStatus(status)
+	if parentID.Valid {
+		pid := parentID.String
+		m.ParentID = &pid
+	}
 	if startedAt.Valid {
 		t := startedAt.Time
 		m.StartedAt = &t

@@ -9,6 +9,8 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strings"
 	"sync"
 	"time"
 
@@ -164,9 +166,13 @@ func (r *Runner) runLoop(ctx context.Context, m *model.Mission) {
 	toolsForModel := r.buildToolDefs(m.Loadout)
 	r.logger.Info("mission start", "mission", m.ID, "model", modelID, "tools", len(toolsForModel))
 
+	userText := fmt.Sprintf("【行动代号】%s\n【任务简报】%s", m.Codename, m.Brief)
+	if chain := r.buildChainContext(ctx, m); chain != "" {
+		userText = chain + "\n\n--- 本次行动 ---\n" + userText
+	}
 	messages := []llm.Message{
 		{Role: llm.RoleSystem, Content: r.cfg.SystemPrompt},
-		{Role: llm.RoleUser, Content: fmt.Sprintf("【行动代号】%s\n【任务简报】%s", m.Codename, m.Brief)},
+		{Role: llm.RoleUser, Content: userText},
 	}
 
 	env := &tools.Env{
@@ -454,4 +460,61 @@ func resolveEffort(tier model.MissionTier) string {
 // MissionWorkspace 给外部调用方一个统一拼路径的入口。
 func (r *Runner) MissionWorkspace(missionID string) string {
 	return filepath.Join(r.cfg.WorkspaceRoot, missionID)
+}
+
+// buildChainContext 在「继续安排」场景下，把上一行动的简报与最终报告摘要
+// 拼成一段前置 user 上下文。无父任务或读取失败时返回空串（不影响主流程）。
+func (r *Runner) buildChainContext(ctx context.Context, m *model.Mission) string {
+	if m.ParentID == nil || *m.ParentID == "" {
+		return ""
+	}
+	parent, err := db.GetMission(ctx, r.db, *m.ParentID, m.UserID)
+	if err != nil {
+		r.logger.Warn("chain ctx: load parent failed", "parent", *m.ParentID, "err", err)
+		return ""
+	}
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "【行动卷宗·第 %d 次出勤·上次代号：%s】\n", parent.SeriesSeq, parent.Codename)
+	fmt.Fprintf(&sb, "上次简报：%s\n", parent.Brief)
+
+	arts, err := db.ListArtifacts(ctx, r.db, parent.ID)
+	if err == nil {
+		for _, a := range arts {
+			lo := strings.ToLower(a.Name)
+			if a.Name != "报告.html" && !strings.HasSuffix(lo, ".html") && !strings.HasSuffix(lo, ".htm") {
+				continue
+			}
+			full := a.Path
+			if !filepath.IsAbs(full) {
+				full = filepath.Join(parent.WorkspaceDir, full)
+			}
+			b, err := os.ReadFile(full)
+			if err != nil {
+				continue
+			}
+			plain := htmlToPlain(b)
+			if len(plain) > 4000 {
+				plain = plain[:4000] + "…"
+			}
+			sb.WriteString("上次行动报告（节选）：\n")
+			sb.WriteString(plain)
+			sb.WriteString("\n")
+			break
+		}
+	}
+	sb.WriteString("\n请基于上次行动的结论与产出继续推进下文的新指令。")
+	return sb.String()
+}
+
+var (
+	stripScriptRe = regexp.MustCompile(`(?is)<(script|style)[^>]*>.*?</(?:script|style)>`)
+	stripTagRe    = regexp.MustCompile(`<[^>]+>`)
+)
+
+// htmlToPlain 简化版去标签：把 HTML 转成可塞进 prompt 的纯文本。
+func htmlToPlain(b []byte) string {
+	s := string(b)
+	s = stripScriptRe.ReplaceAllString(s, " ")
+	s = stripTagRe.ReplaceAllString(s, " ")
+	return strings.Join(strings.Fields(s), " ")
 }

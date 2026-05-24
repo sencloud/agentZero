@@ -24,7 +24,7 @@ GoRouter buildRouter() {
       ),
       GoRoute(
         path: '/missions/new',
-        builder: (_, _) => const DispatchPage(),
+        builder: (_, state) => DispatchPage(parentId: state.uri.queryParameters['parent_id']),
       ),
       GoRoute(
         path: '/missions/:id',

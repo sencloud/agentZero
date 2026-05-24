@@ -13,6 +13,7 @@ import '../../core/api_client.dart';
 import '../../core/theme.dart';
 import '../../models/mission.dart';
 import '../../providers/missions.dart';
+import 'mission_retro.dart';
 import 'sse_client.dart';
 
 /// 行动现场（M3d）。
@@ -267,17 +268,23 @@ class _OperationRoomPageState extends ConsumerState<OperationRoomPage> {
               ],
             ),
             const Divider(height: 1, color: AppTheme.graphite),
+            if (m.seriesSeq > 1 || m.parentId != null) _SeriesNavBar(mission: m),
             if (_reportArtifact != null) _ReportBanner(mission: m, artifact: _reportArtifact!),
             Expanded(
-              child: blocks.isEmpty
+              child: blocks.isEmpty && !m.status.isTerminal
                   ? _EmptyEventState(running: _running)
                   : Stack(
                       children: [
                         ListView.builder(
                           controller: _scrollCtrl,
                           padding: const EdgeInsets.fromLTRB(16, 16, 16, 120),
-                          itemCount: blocks.length,
-                          itemBuilder: (_, i) => _EventBlockView(block: blocks[i]),
+                          itemCount: blocks.length + (m.status.isTerminal ? 1 : 0),
+                          itemBuilder: (_, i) {
+                            if (i < blocks.length) {
+                              return _EventBlockView(block: blocks[i]);
+                            }
+                            return MissionRetroCard(mission: m);
+                          },
                         ),
                         if (!_autoScroll)
                           Positioned(
@@ -345,6 +352,103 @@ class _MissionStamp extends StatelessWidget {
             fontFamilyFallback: AppTheme.monoFallback,
             shadows: [
               Shadow(color: color.withValues(alpha: 0.35), blurRadius: 6),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ============== 行动卷宗导航条（同 series 内跳卷） ==============
+
+class _SeriesNavBar extends ConsumerWidget {
+  const _SeriesNavBar({required this.mission});
+  final Mission mission;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final async = ref.watch(missionSeriesProvider(mission.id));
+    return async.when(
+      loading: () => const SizedBox.shrink(),
+      error: (_, _) => const SizedBox.shrink(),
+      data: (items) {
+        if (items.length <= 1) return const SizedBox.shrink();
+        return Container(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+          decoration: const BoxDecoration(
+            color: AppTheme.carbon,
+            border: Border(bottom: BorderSide(color: AppTheme.graphite, width: 0.6)),
+          ),
+          child: Row(
+            children: [
+              const Text('卷宗',
+                  style: TextStyle(
+                    color: AppTheme.amber,
+                    fontSize: 10,
+                    letterSpacing: 3,
+                    fontWeight: FontWeight.w700,
+                    fontFamilyFallback: AppTheme.monoFallback,
+                  )),
+              const SizedBox(width: 10),
+              Expanded(
+                child: SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    children: [
+                      for (final m in items)
+                        Padding(
+                          padding: const EdgeInsets.only(right: 8),
+                          child: _SeriesChip(
+                            mission: m,
+                            isCurrent: m.id == mission.id,
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _SeriesChip extends StatelessWidget {
+  const _SeriesChip({required this.mission, required this.isCurrent});
+  final Mission mission;
+  final bool isCurrent;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = isCurrent ? AppTheme.paper : AppTheme.muted;
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: isCurrent ? null : () => context.go('/missions/${mission.id}'),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+          decoration: BoxDecoration(
+            border: Border.all(color: isCurrent ? AppTheme.paper : AppTheme.graphite, width: 0.8),
+            color: isCurrent ? AppTheme.graphite : AppTheme.carbon,
+          ),
+          child: Row(
+            children: [
+              Text('#${mission.seriesSeq}',
+                  style: TextStyle(
+                    color: color,
+                    fontSize: 11,
+                    letterSpacing: 2,
+                    fontWeight: FontWeight.w700,
+                    fontFamilyFallback: AppTheme.monoFallback,
+                  )),
+              const SizedBox(width: 6),
+              Text(
+                mission.codename,
+                style: TextStyle(color: color, fontSize: 11, letterSpacing: 1),
+              ),
             ],
           ),
         ),
@@ -1305,6 +1409,9 @@ extension on Mission {
         inputTokens: inputTokens,
         outputTokens: outputTokens,
         createdAt: createdAt,
+        seriesId: seriesId,
+        seriesSeq: seriesSeq,
+        parentId: parentId,
         startedAt: startedAt,
         endedAt: endedAt,
       );

@@ -37,9 +37,14 @@ type Mission struct {
 	WorkspaceDir string        `json:"workspace_dir"` // 任务隔离目录绝对路径（不直接暴露给前端）
 	InputTokens  int64         `json:"input_tokens"`
 	OutputTokens int64         `json:"output_tokens"`
-	StartedAt    *time.Time    `json:"started_at,omitempty"`
-	EndedAt      *time.Time    `json:"ended_at,omitempty"`
-	CreatedAt    time.Time     `json:"created_at"`
+	// SeriesID 行动卷宗 ID：一次性派遣的 mission，SeriesID = ID；
+	// 通过「继续安排」生成的后续 mission，SeriesID = 首次 mission 的 ID。
+	SeriesID  string  `json:"series_id"`
+	SeriesSeq int     `json:"series_seq"`           // 在该卷宗内的序号，1 = 首次
+	ParentID  *string `json:"parent_id,omitempty"`  // 上一个 mission 的 ID（首次为 nil）
+	StartedAt *time.Time `json:"started_at,omitempty"`
+	EndedAt   *time.Time `json:"ended_at,omitempty"`
+	CreatedAt time.Time  `json:"created_at"`
 }
 
 // StepType 是行动现场事件流上每一条记录的类型。
@@ -91,4 +96,27 @@ type Artifact struct {
 	Mime      string    `json:"mime,omitempty"`
 	Size      int64     `json:"size"`
 	CreatedAt time.Time `json:"created_at"`
+}
+
+// Review 是用户对一次行动的点评：1-5 星 + 可选评语。
+// 一个 mission 最多一条 review，重复提交即 upsert。
+type Review struct {
+	MissionID string    `json:"mission_id"`
+	Rating    int       `json:"rating"` // 1..5
+	Comment   string    `json:"comment"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// Skill 是用户从一次高分行动里"沉淀"下来的可复用方法论。
+// 之后派遣相关任务时，prompt_template 可以作为隐式系统提示参与。
+type Skill struct {
+	ID              int64     `json:"id"`
+	UserID          int64     `json:"user_id"`
+	Name            string    `json:"name"`
+	Description     string    `json:"description"`
+	TriggerHint     string    `json:"trigger_hint"`    // 什么时候启用这项技能的一句话提示
+	PromptTemplate  string    `json:"prompt_template"` // 实际注入的 prompt 片段
+	SourceMissionID *string   `json:"source_mission_id,omitempty"`
+	CreatedAt       time.Time `json:"created_at"`
 }

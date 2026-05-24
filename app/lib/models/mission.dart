@@ -78,6 +78,9 @@ class Mission {
     required this.inputTokens,
     required this.outputTokens,
     required this.createdAt,
+    required this.seriesId,
+    required this.seriesSeq,
+    this.parentId,
     this.startedAt,
     this.endedAt,
   });
@@ -91,6 +94,9 @@ class Mission {
   final int inputTokens;
   final int outputTokens;
   final DateTime createdAt;
+  final String seriesId;
+  final int seriesSeq;
+  final String? parentId;
   final DateTime? startedAt;
   final DateTime? endedAt;
 
@@ -104,12 +110,71 @@ class Mission {
         inputTokens: (json['input_tokens'] as num?)?.toInt() ?? 0,
         outputTokens: (json['output_tokens'] as num?)?.toInt() ?? 0,
         createdAt: DateTime.parse(json['created_at'] as String).toLocal(),
+        seriesId: (json['series_id'] as String?) ?? (json['id'] as String),
+        seriesSeq: (json['series_seq'] as num?)?.toInt() ?? 1,
+        parentId: json['parent_id'] as String?,
         startedAt: (json['started_at'] as String?) != null
             ? DateTime.parse(json['started_at'] as String).toLocal()
             : null,
         endedAt: (json['ended_at'] as String?) != null
             ? DateTime.parse(json['ended_at'] as String).toLocal()
             : null,
+      );
+}
+
+/// 用户对一次行动的点评（1-5 星 + 评语）。
+class MissionReview {
+  MissionReview({
+    required this.missionId,
+    required this.rating,
+    required this.comment,
+    required this.createdAt,
+    required this.updatedAt,
+  });
+
+  final String missionId;
+  final int rating;
+  final String comment;
+  final DateTime createdAt;
+  final DateTime updatedAt;
+
+  factory MissionReview.fromJson(Map<String, dynamic> json) => MissionReview(
+        missionId: json['mission_id'] as String,
+        rating: (json['rating'] as num).toInt(),
+        comment: (json['comment'] as String?) ?? '',
+        createdAt: DateTime.parse(json['created_at'] as String).toLocal(),
+        updatedAt: DateTime.parse(json['updated_at'] as String).toLocal(),
+      );
+}
+
+/// 沉淀下来的技能（高分行动总结成的 Skill）。
+class Skill {
+  Skill({
+    required this.id,
+    required this.name,
+    required this.description,
+    required this.triggerHint,
+    required this.promptTemplate,
+    required this.createdAt,
+    this.sourceMissionId,
+  });
+
+  final int id;
+  final String name;
+  final String description;
+  final String triggerHint;
+  final String promptTemplate;
+  final String? sourceMissionId;
+  final DateTime createdAt;
+
+  factory Skill.fromJson(Map<String, dynamic> json) => Skill(
+        id: (json['id'] as num).toInt(),
+        name: (json['name'] as String?) ?? '',
+        description: (json['description'] as String?) ?? '',
+        triggerHint: (json['trigger_hint'] as String?) ?? '',
+        promptTemplate: (json['prompt_template'] as String?) ?? '',
+        sourceMissionId: json['source_mission_id'] as String?,
+        createdAt: DateTime.parse(json['created_at'] as String).toLocal(),
       );
 }
 

@@ -61,6 +61,12 @@ func NewRouter(d Deps) http.Handler {
 			r.Get("/missions/{id}/stream", m.stream)
 			r.Post("/missions/{id}/abort", m.abort)
 			r.Get("/missions/{id}/artifacts/{aid}/content", m.artifactContent)
+			r.Get("/missions/{id}/review", m.getReview)
+			r.Post("/missions/{id}/review", m.postReview)
+			r.Post("/missions/{id}/follow_up", m.followUp)
+			r.Get("/missions/{id}/series", m.series)
+			r.Get("/skills", m.listSkills)
+			r.Post("/skills", m.createSkill)
 		})
 	})
 

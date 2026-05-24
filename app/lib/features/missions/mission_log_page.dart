@@ -201,8 +201,19 @@ class _MissionList extends ConsumerWidget {
       error: (e, _) => _ErrorView(message: '$e', onRetry: () => ref.invalidate(missionsListProvider)),
       data: (items) {
         if (items.isEmpty) return const _EmptyState();
-        final running = items.where((m) => !m.status.isTerminal).toList();
-        final archived = items.where((m) => m.status.isTerminal).toList();
+        // 按 series_id 折叠：每个卷宗只露出最新一卷做"代表"。
+        final groups = <String, List<Mission>>{};
+        for (final m in items) {
+          groups.putIfAbsent(m.seriesId, () => []).add(m);
+        }
+        for (final g in groups.values) {
+          g.sort((a, b) => a.seriesSeq.compareTo(b.seriesSeq));
+        }
+        final reps = groups.values.map((g) => g.last).toList()
+          ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+        final running = reps.where((m) => !m.status.isTerminal).toList();
+        final archived = reps.where((m) => m.status.isTerminal).toList();
+
         return RefreshIndicator(
           color: AppTheme.paper,
           backgroundColor: AppTheme.carbon,
@@ -213,13 +224,15 @@ class _MissionList extends ConsumerWidget {
               if (running.isNotEmpty) ...[
                 AppDecor.sectionRule('进行中  ·  ${running.length}'),
                 const SizedBox(height: 4),
-                for (final m in running) _SwipeableMissionCard(mission: m),
+                for (final m in running)
+                  _SwipeableMissionCard(mission: m, seriesSize: groups[m.seriesId]!.length),
                 const SizedBox(height: 24),
               ],
               if (archived.isNotEmpty) ...[
                 AppDecor.sectionRule('归档  ·  ${archived.length}'),
                 const SizedBox(height: 4),
-                for (final m in archived) _SwipeableMissionCard(mission: m),
+                for (final m in archived)
+                  _SwipeableMissionCard(mission: m, seriesSize: groups[m.seriesId]!.length),
               ],
             ],
           ),
@@ -230,8 +243,9 @@ class _MissionList extends ConsumerWidget {
 }
 
 class _SwipeableMissionCard extends ConsumerWidget {
-  const _SwipeableMissionCard({required this.mission});
+  const _SwipeableMissionCard({required this.mission, this.seriesSize = 1});
   final Mission mission;
+  final int seriesSize;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -294,7 +308,7 @@ class _SwipeableMissionCard extends ConsumerWidget {
           ],
         ),
       ),
-      child: _MissionCard(mission: mission),
+      child: _MissionCard(mission: mission, seriesSize: seriesSize),
     );
   }
 }
@@ -346,12 +360,14 @@ class _DeleteConfirmDialog extends StatelessWidget {
 }
 
 class _MissionCard extends StatelessWidget {
-  const _MissionCard({required this.mission});
+  const _MissionCard({required this.mission, this.seriesSize = 1});
   final Mission mission;
+  final int seriesSize;
 
   @override
   Widget build(BuildContext context) {
     final isTerminal = mission.status.isTerminal;
+    final isDossier = seriesSize > 1;
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 6),
       child: InkWell(
@@ -365,6 +381,23 @@ class _MissionCard extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              if (isDossier)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Row(
+                    children: [
+                      AppDecor.stamp('DOSSIER', border: AppTheme.amber, color: AppTheme.amber),
+                      const SizedBox(width: 8),
+                      Text('行动卷宗 · $seriesSize 卷',
+                          style: const TextStyle(
+                            color: AppTheme.amber,
+                            fontSize: 11,
+                            letterSpacing: 3,
+                            fontFamilyFallback: AppTheme.monoFallback,
+                          )),
+                    ],
+                  ),
+                ),
               Row(
                 children: [
                   Expanded(
